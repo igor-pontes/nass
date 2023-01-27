@@ -10,7 +10,7 @@
 
     0x2008-0x3FFF => 0x1FF8 Mirrors of $2000-2007 (repeats every 8 bytes) 
 
-    0x4000-0x4017 => 0x0018 NES APU and I/O registers
+    0x4000-0x4017 => 0x0018 NES APU and I/O registers # See https://www.nesdev.org/wiki/2A03
 
     0x4018-0x401F => 0x0008 APU and I/O functionality that is normally disabled. See CPU Test Mode.
 
