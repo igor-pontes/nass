@@ -1,3 +1,4 @@
+use crate::cpu::CPU;
 use { Instruction::*, AddressingMode::* };
 
 // https://www.nesdev.org/6502_cpu.txt
@@ -43,6 +44,12 @@ pub struct OpCode {
 
 // 0x100 = 0xFF + 1(zero)
 pub type OpCodes = [OpCode; 0x100];
+
+impl OpCode {
+    pub fn run(self, cpu: CPU) -> CPU {
+        unimplemented!()
+    }
+}
 
 pub const OP_CODES: OpCodes = [
     OpCode { inst: BRK, ad: Implicit },           

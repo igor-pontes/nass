@@ -37,7 +37,7 @@ impl CPU {
             x: 0,
             y: 0,
             s: 0,
-            sp: 255,
+            sp: 0xFF,
             pc: 0,
             f: bitarr!(u8, Lsb0; 0; 7),
             bus: BUS::new(),
