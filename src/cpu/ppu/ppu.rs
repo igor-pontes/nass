@@ -15,6 +15,7 @@
 */
 
 // https://www.nesdev.org/wiki/PPU_memory_map
+
 const PPU_RAM_SIZE: usize = 0x4000; // 0x4000 = 0x3FFF + 1
 
 #[derive(Debug)]

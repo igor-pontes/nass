@@ -1,6 +1,6 @@
 /*  https://www.nesdev.org/wiki/CPU_memory_map
 
-    0x0000-0x07FF => 0x0800(2KB) Internal RAM
+    0x0000-0x07FF => 0x0800(2KB) Internal RAM - https://www.nesdev.org/wiki/Sample_RAM_map
 
     0x0800-0x0FFF => 0x0800(2KB)
     0x1000-0x17FF => 0x0800(2KB) Mirrors of $0000-$07FF
@@ -26,7 +26,6 @@
 use super::{
     ppu::PPU,
     apu::APU,
-    cartridge::Cartridge
 };
 
 const RAM_SIZE: usize = 0x10000; // 0x10000 = 0xFFFF + 1
@@ -36,7 +35,6 @@ pub struct BUS {
     pub ram: [u8; RAM_SIZE], // CPU address space
     pub ppu: PPU,
     pub apu: APU,
-    pub cartridge: Cartridge
 }
 
 impl BUS {
@@ -45,7 +43,9 @@ impl BUS {
             ram: [0; RAM_SIZE],
             ppu: PPU::new(),
             apu: APU::new(),
-            cartridge: Cartridge::new()
         }
+    }
+    pub fn update_ram(self) {
+        unimplemented!()
     }
 }

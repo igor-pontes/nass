@@ -3,6 +3,7 @@ use super::{
     instructions::{OpCodes, OP_CODES}
 };
 use bitvec::prelude::*;
+use wasm_bindgen::prelude::*;
 
 // https://en.wikipedia.org/wiki/MOS_Technology_6502
 
@@ -42,6 +43,12 @@ impl CPU {
             f: bitarr!(u8, Lsb0; 0; 7),
             bus: BUS::new(),
             instructions: OP_CODES
+        }
+    }
+    pub fn set_prg_rom(self, divide: bool, prg_rom: [u8]) {
+        self.bus.ram[0x8000..0xBFFF] = prg_rom;
+        if divide == 1 {
+            self.bus.ram[0x8000..0xBFFF] = prg_rom;
         }
     }
 }
