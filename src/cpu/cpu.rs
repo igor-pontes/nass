@@ -42,13 +42,7 @@ impl CPU {
             pc: 0,
             f: bitarr!(u8, Lsb0; 0; 7),
             bus: BUS::new(),
-            instructions: OP_CODES
-        }
-    }
-    pub fn set_prg_rom(self, divide: bool, prg_rom: [u8]) {
-        self.bus.ram[0x8000..0xBFFF] = prg_rom;
-        if divide == 1 {
-            self.bus.ram[0x8000..0xBFFF] = prg_rom;
+            instructions: OP_CODES,
         }
     }
 }

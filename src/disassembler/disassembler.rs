@@ -1,4 +1,7 @@
+use super::super::cpu::CPU;
+
 pub fn disassemble(bytes: &[u8]) {
+    let cpu = CPU::new();
     if bytes[0] == 0x4E && bytes[1] == 0x45 && bytes[2] == 0x53 && bytes[3] == 0x1A {
         let prg_rom_size = bytes[4] as usize * 16384;
         let chr_rom_size = bytes[5] as usize * 8192;
@@ -23,12 +26,11 @@ pub fn disassemble(bytes: &[u8]) {
 
         let prg_rom = &bytes[offset..offset + (prg_rom_size - 1)];
 
-        if bytes[4] <= 1 {
-
+        if bytes[4] > 1 {
+            cpu.bus.set_prg_rom(true, prg_rom);
         } else {
-
+            cpu.bus.set_prg_rom(false, prg_rom);
         }
-        
         offset += prg_rom_size;
         let mut chr_rom = None;
         if chr_rom_size != 0 {

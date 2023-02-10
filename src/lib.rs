@@ -1,4 +1,7 @@
 mod utils;
+mod ppu;
+mod cpu;
+mod apu;
 use std::fmt::format;
 use wasm_bindgen::prelude::*;
 use web_sys::Storage;
