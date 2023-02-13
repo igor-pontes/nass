@@ -2,12 +2,13 @@ mod utils;
 mod ppu;
 mod cpu;
 mod apu;
+mod mapper;
 use std::fmt::format;
 use wasm_bindgen::prelude::*;
 use web_sys::Storage;
 mod scene;
-mod disassembler;
-use crate::{scene::Scene, disassembler::disassemble};
+mod cartridge;
+use crate::{scene::Scene, cartridge::Cartridge};
 
 // When the `wee_alloc` feature is enabled, use `wee_alloc` as the global
 // allocator.
@@ -23,7 +24,7 @@ extern {
 #[wasm_bindgen]
 pub fn run(ls: Storage) {
     let file = ls.get_item("file").unwrap().unwrap();
-    disassemble(file.as_bytes());
+    Cartridge::disassemble(file.as_bytes());
 }
 
 #[wasm_bindgen]

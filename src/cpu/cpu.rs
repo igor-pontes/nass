@@ -12,6 +12,11 @@ const CLOCK_FREQUENCY: u32 = 1789773; // 1789773 Hz (1.789773 MHz)
 
 // Every cycle on 6502 is either a read or a write cycle.
 
+// The PPU renders 262 scanlines per frame. 
+// Each scanline lasts for 341 PPU clock cycles (113.667 CPU clock cycles; 1 CPU cycle = 3 PPU cycles), 
+// with each clock cycle producing one pixel.
+// https://www.nesdev.org/wiki/PPU_rendering
+
 // MOS 6502 implementation 
 // It is common practice on a 6502 to initialize the stack pointer to $FF
 #[derive(Debug)]
