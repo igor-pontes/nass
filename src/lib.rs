@@ -3,12 +3,10 @@ mod ppu;
 mod cpu;
 mod apu;
 mod mapper;
-use std::fmt::format;
 use wasm_bindgen::prelude::*;
-use web_sys::Storage;
 mod scene;
 mod cartridge;
-use crate::{scene::Scene, cartridge::Cartridge};
+use crate::{cartridge::*, cpu::*};
 
 // When the `wee_alloc` feature is enabled, use `wee_alloc` as the global
 // allocator.
@@ -22,12 +20,14 @@ extern {
 }
 
 #[wasm_bindgen]
-pub fn run(ls: Storage) {
-    let file = ls.get_item("file").unwrap().unwrap();
-    Cartridge::disassemble(file.as_bytes());
-}
-
-#[wasm_bindgen]
-pub fn greet() {
-    alert("Hello, nass!");
+pub fn disassemble_and_run(file: String) {
+    let cartridge = match Cartridge::disassemble(file.as_bytes()) {
+        Ok(cartridge) => cartridge,
+        Err(str) => return alert(str)
+    };
+    let cpu = CPU::new(BUS::new(cartridge));
+    while true {
+        
+        return
+    }
 }

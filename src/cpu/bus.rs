@@ -23,52 +23,52 @@
     page. In other words, whenever anything is being pushed on the
     stack, it will be stored to the address $0100+S.
 */
+
+/*
+    The CPU expects interrupt vectors in a fixed place at the end of the cartridge space:
+    $FFFA–$FFFB = NMI vector
+    $FFFC–$FFFD = Reset vector
+    $FFFE–$FFFF = IRQ/BRK vector
+*/
+
 use super::super::{
-    ppu::PPU,
-    apu::APU,
+    ppu::*,
+    apu::*,
+    cartridge::*
 };
 
-const RAM_SIZE: usize = 0x10000; // 0x10000 = 0xFFFF + 1
+const RAM_SIZE: usize = 0x800; // 0x10000 = 0xFFFF + 1
+//const MEMORY_SIZE: usize = 0x10000; // 0x10000 = 0xFFFF + 1
 
 #[derive(Debug)]
 pub struct BUS {
-    pub ram: [u8; RAM_SIZE], // CPU address space
-    pub ppu: PPU,
-    pub apu: APU,
+    ram: [u8; 0x800],
+    cartridge: Cartridge,
+    ppu: PPU,
+    apu: APU,
 }
 
 impl BUS {
-    pub fn new() -> BUS {
+    pub fn new(cartridge: Cartridge) -> BUS {
         BUS {
             ram: [0; RAM_SIZE],
+            cartridge,
             ppu: PPU::new(),
             apu: APU::new(),
         }
     }
-    pub fn set_prg_ram(mut self, prg_ram: &[u8]) { // TODO
-        unimplemented!()
-    }
-    pub fn set_prg_rom(mut self, divide: bool, prg_rom: &[u8]) {
-        // TODO: separate by mapper () (only NROM for now. https://www.nesdev.org/wiki/NROM)
-        let (_, prg_rom_area) = self.ram.split_at_mut(0x8000);
-        let (first_part, second_part) = prg_rom_area.split_at_mut(0x4000);
-        if divide {
-            first_part.copy_from_slice(&prg_rom[0x0..0x3FFF]);
-            second_part.copy_from_slice(&prg_rom[0x4000..0x7FFF]);
+    pub fn read(&self, addr: u16) -> u8 { 
+        if addr < 0x2000 { // Mirrors of $0000–$07FF 
+            self.ram[(addr & 0x7FF) as usize]
+        } else if addr < 0x4000 { // Mirrors of $2000–$2007
+            self.ppu.registers[((addr & 0x0007)) as usize]
+        } else if addr < 0x4018 {
+            self.apu.registers[(addr & 0x17) as usize]
+        } else if addr < 0x6000 {
+            //"Not implemented"
+            0x0
         } else {
-            first_part.copy_from_slice(&prg_rom[0x0..0x3FFF]);
-            second_part.copy_from_slice(&prg_rom[0x0..0x3FFF]);
+            self.cartridge.read_prg(addr - 0x6000)
         }
-    }
-    // "addr" is guaranteed to be 2 bytes long (MOS 6502 Address width)
-    pub fn get_value_at(self, addr: u16) -> u8 { 
-        if addr >= 0x0800 && addr <= 0x1FFF { // Mirrors of $0000–$07FF 
-            self.ram[(addr & 0x00FF) as usize]
-        } else if addr >= 0x2008 && addr <= 0x3FFF { // Mirrors of $2000–$2007
-            self.ram[((addr & 0x0007) + 0x2000) as usize]
-        } else {
-            self.ram[addr as usize]
-        }
-
     }
 }

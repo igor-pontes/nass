@@ -16,19 +16,27 @@
 
 // https://www.nesdev.org/wiki/PPU_memory_map
 
-const PPU_RAM_SIZE: usize = 0x4000; // 0x4000 = 0x3FFF + 1
+// OAM can be viewed as an array with 64 entries. 
+// Each entry has 4 bytes: the sprite Y coordinate, 
+// the sprite tile number, the sprite attribute, and the sprite X coordinate. 
+
+//const PPU_RAM_SIZE: usize = 0x4000; // 0x4000 = 0x3FFF + 1
+const OAM_SIZE: usize = 0x100;
 
 #[derive(Debug)]
 pub struct PPU{
     pub registers: [u8; 8],
-    ram: [u8; PPU_RAM_SIZE],
+    oam: [u8; OAM_SIZE],
 }
 
 impl PPU {
     pub fn new() -> PPU {
         PPU {
             registers: [0; 8],
-            ram: [0; PPU_RAM_SIZE],
+            oam: [0; OAM_SIZE],
         }
+    }
+    pub fn read() -> u8 {
+        unimplemented!()
     }
 }

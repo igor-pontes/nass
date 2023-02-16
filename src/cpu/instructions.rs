@@ -1,8 +1,4 @@
-use crate::cpu::CPU;
 use { Instruction::*, AddressingMode::* };
-use wasm_bindgen::prelude::*;
-
-use super::cpu;
 
 // https://www.nesdev.org/6502_cpu.txt
 // https://www.nesdev.org/wiki/CPU_addressing_modes
@@ -47,12 +43,6 @@ pub struct OpCode {
 
 // 0x100 = 0xFF + 1(zero)
 pub type OpCodes = [OpCode; 0x100];
-
-impl OpCode {
-    pub fn execute_op(self) {
-        unimplemented!()
-    }
-}
 
 pub const OP_CODES: OpCodes = [
     OpCode { inst: BRK, ad: Implicit },           
