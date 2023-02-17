@@ -3,9 +3,36 @@ use { Instruction::*, AddressingMode::* };
 // https://www.nesdev.org/6502_cpu.txt
 // https://www.nesdev.org/wiki/CPU_addressing_modes
 
+pub const OP_MASK: u8 = 0x03; // Which column of instructions you want?
+// ORA (x, ind) = 0b0000001
+// - (INST_MASK += ...001 ) = Operation 1
+// - 
+// - (ADDR_MODE_MASK += ...001) = 0
+// (ADDR_MODE_SHIFT += ...000 (>> 2) ) = 0 (which is X, ind)
+pub const ADDR_MODE_MASK: u8 = 0x1C; // 0b11100
+pub const ADDR_MODE_SHIFT: u8 = 0x02;
+
+// Each 32, increases 1 digit:
+// ORA = 0b00000000
+// AND = 0b00100000
+// EOR = 0b01000000
+// ADC = 0b01100000
+// STA = 0b10000000
+// LDA = 0b10100000
+// CMP = 0b11000000
+// SBC = 0b11100000
+// 8 Each type of operation, 8 possible outcomes: 2*2*2 = 8
+pub const INST_MODE_MASK: u8 = 0xE0; // 0b11100000
+pub const INST_MODE_SHIFT: u8 = 0x05; // We only care about first 3 digits
+
+// Each column has a predetermined set of bits turned off, thats why this works.
+// (https://www.masswerk.at/6502/6502_instruction_set.html#explanation)
+// E.g. column 0x01 does not have bits 1-3(1111[000]1) active.
+// E.g. column 0x02 does not have bits 0, 2, 3(1111[00]1[0]) active.
+
 #[derive(Debug)]
 pub enum Instruction {
-    NULL, LAS, ISB, SBX,
+    NULL, LAS, ISB, SBX, ISC,
     SLO, ANC, RLA, SRE, ASR, RRA, SAX, ARR,
     SHS, ANE, SHA, LAX, LXA, SHX, SHY, DCP,
     ADC, AND, ASL, BCC, BCS, BEQ, BIT, BMI, 
@@ -25,280 +52,112 @@ pub enum AddressingMode {
     Zeropage,
     ZeropageX,
     ZeropageY,
+    ZeropageIndexed,
     Relative,
     Absolute,
     AbsoluteX,
     AbsoluteY,
+    AbsoluteIndexed,
     Indirect,
     IndirectX,
     IndirectY,
     None
 }
 
-#[derive(Debug)]
-pub struct OpCode {
-    pub inst: Instruction,
-    pub ad: AddressingMode
-}
+pub const OPERATION_0: [Instruction; 8] = [
+    NULL,
+    BIT,
+    NULL,
+    NULL,
+    STY, // or SHY
+    LDY,
+    CPY,
+    CPX,
+];
 
-// 0x100 = 0xFF + 1(zero)
-pub type OpCodes = [OpCode; 0x100];
+pub const OPERATION_1: [Instruction; 8] = [
+    ORA,
+    AND,
+    EOR,
+    ADC,
+    STA,
+    LDA,
+    CMP,
+    SBC
+];
 
-pub const OP_CODES: OpCodes = [
-    OpCode { inst: BRK, ad: Implicit },           
-    OpCode { inst: ORA, ad: IndirectX },      
-    OpCode { inst: NULL, ad: None },
-    OpCode { inst: SLO, ad: IndirectX },
-    OpCode { inst: NOP, ad: Zeropage },
-    OpCode { inst: ORA, ad: Zeropage },
-    OpCode { inst: ASL, ad: Zeropage },
-    OpCode { inst: SLO, ad: Zeropage },
-    OpCode { inst: PHP, ad: Implicit },
-    OpCode { inst: ORA, ad: Immediate },
-    OpCode { inst: ASL, ad: Accumulator },
-    OpCode { inst: ANC, ad: Immediate },
-    OpCode { inst: NOP, ad: Absolute },
-    OpCode { inst: ORA, ad: Absolute },
-    OpCode { inst: ASL, ad: Absolute },
-    OpCode { inst: SLO, ad: Absolute },
-    OpCode { inst: BPL, ad: Relative },
-    OpCode { inst: ORA, ad: IndirectY },
-    OpCode { inst: NULL, ad: None },
-    OpCode { inst: SLO, ad: IndirectY },
-    OpCode { inst: NOP, ad: ZeropageX },
-    OpCode { inst: ORA, ad: ZeropageX },
-    OpCode { inst: ASL, ad: ZeropageX },
-    OpCode { inst: SLO, ad: ZeropageX },
-    OpCode { inst: CLC, ad: Implicit },
-    OpCode { inst: ORA, ad: AbsoluteY },
-    OpCode { inst: NOP, ad: Implicit },
-    OpCode { inst: SLO, ad: AbsoluteY },
-    OpCode { inst: NOP, ad: AbsoluteX },
-    OpCode { inst: ORA, ad: AbsoluteX },
-    OpCode { inst: ASL, ad: AbsoluteX },
-    OpCode { inst: SLO, ad: AbsoluteX },
-    OpCode { inst: JSR, ad: Absolute },
-    OpCode { inst: AND, ad: IndirectX },
-    OpCode { inst: NULL, ad: None },
-    OpCode { inst: RLA, ad: IndirectX },
-    OpCode { inst: BIT, ad: Zeropage },
-    OpCode { inst: AND, ad: Zeropage },
-    OpCode { inst: ROL, ad: Zeropage },
-    OpCode { inst: RLA, ad: Zeropage },
-    OpCode { inst: PLP, ad: Implicit },
-    OpCode { inst: AND, ad: Immediate },
-    OpCode { inst: ROL, ad: Accumulator },
-    OpCode { inst: ANC, ad: Immediate },
-    OpCode { inst: BIT, ad: Absolute },
-    OpCode { inst: AND, ad: Absolute },
-    OpCode { inst: ROL, ad: Absolute },
-    OpCode { inst: RLA, ad: Absolute },
-    OpCode { inst: BMI, ad: Relative },
-    OpCode { inst: AND, ad: IndirectY },
-    OpCode { inst: NULL, ad: None },
-    OpCode { inst: RLA, ad: IndirectY },
-    OpCode { inst: NOP, ad: ZeropageX },
-    OpCode { inst: AND, ad: ZeropageX },
-    OpCode { inst: ROL, ad: ZeropageX },
-    OpCode { inst: RLA, ad: ZeropageX },
-    OpCode { inst: SEC, ad: Implicit },
-    OpCode { inst: AND, ad: AbsoluteY },
-    OpCode { inst: NOP, ad: Implicit },
-    OpCode { inst: RLA, ad: AbsoluteY },
-    OpCode { inst: NOP, ad: AbsoluteX },
-    OpCode { inst: AND, ad: AbsoluteX },
-    OpCode { inst: ROL, ad: AbsoluteX },
-    OpCode { inst: RLA, ad: AbsoluteX },
-    OpCode { inst: RTI, ad: Implicit },
-    OpCode { inst: EOR, ad: IndirectX },
-    OpCode { inst: NULL, ad: None },
-    OpCode { inst: SRE, ad: IndirectX },
-    OpCode { inst: NOP, ad: Zeropage },
-    OpCode { inst: EOR, ad: Zeropage },
-    OpCode { inst: LSR, ad: Zeropage },
-    OpCode { inst: SRE, ad: Zeropage },
-    OpCode { inst: PHA, ad: Implicit },
-    OpCode { inst: EOR, ad: Immediate },
-    OpCode { inst: LSR, ad: Accumulator },
-    OpCode { inst: ASR, ad: Immediate },
-    OpCode { inst: JMP, ad: Absolute },
-    OpCode { inst: EOR, ad: Absolute },
-    OpCode { inst: LSR, ad: Absolute },
-    OpCode { inst: SRE, ad: Absolute },
-    OpCode { inst: BVC, ad: Relative },
-    OpCode { inst: EOR, ad: IndirectY },
-    OpCode { inst: NULL, ad: None },
-    OpCode { inst: SRE, ad: IndirectY },
-    OpCode { inst: NOP, ad: ZeropageX },
-    OpCode { inst: EOR, ad: ZeropageX },
-    OpCode { inst: LSR, ad: ZeropageX },
-    OpCode { inst: SRE, ad: ZeropageX },
-    OpCode { inst: CLI, ad: Implicit },
-    OpCode { inst: EOR, ad: AbsoluteY },
-    OpCode { inst: NOP, ad: Implicit },
-    OpCode { inst: SRE, ad: AbsoluteY },
-    OpCode { inst: NOP, ad: AbsoluteX },
-    OpCode { inst: EOR, ad: AbsoluteX },
-    OpCode { inst: LSR, ad: AbsoluteX },
-    OpCode { inst: SRE, ad: AbsoluteX },
-    OpCode { inst: RTS, ad: Implicit },
-    OpCode { inst: ADC, ad: IndirectX },
-    OpCode { inst: NULL, ad: None },
-    OpCode { inst: RRA, ad: IndirectX },
-    OpCode { inst: NOP, ad: Zeropage },
-    OpCode { inst: ADC, ad: Zeropage },
-    OpCode { inst: ROR, ad: Zeropage },
-    OpCode { inst: RRA, ad: Zeropage },
-    OpCode { inst: PLA, ad: Implicit },
-    OpCode { inst: ADC, ad: Immediate },
-    OpCode { inst: ROR, ad: Accumulator },
-    OpCode { inst: ARR, ad: Immediate },
-    OpCode { inst: JMP, ad: Indirect },
-    OpCode { inst: ADC, ad: Absolute },
-    OpCode { inst: ROR, ad: Absolute },
-    OpCode { inst: RRA, ad: Absolute },
-    OpCode { inst: BVS, ad: Relative },
-    OpCode { inst: ADC, ad: IndirectY },
-    OpCode { inst: NULL, ad: None },
-    OpCode { inst: RRA, ad: IndirectY },
-    OpCode { inst: NOP, ad: ZeropageX },
-    OpCode { inst: ADC, ad: ZeropageX },
-    OpCode { inst: ROR, ad: ZeropageX },
-    OpCode { inst: RRA, ad: ZeropageX },
-    OpCode { inst: SEI, ad: Implicit },
-    OpCode { inst: ADC, ad: AbsoluteY },
-    OpCode { inst: NOP, ad: Implicit },
-    OpCode { inst: RRA, ad: AbsoluteY },
-    OpCode { inst: NOP, ad: AbsoluteX },
-    OpCode { inst: ADC, ad: AbsoluteX },
-    OpCode { inst: ROR, ad: AbsoluteX },
-    OpCode { inst: RRA, ad: AbsoluteX },
-    OpCode { inst: NOP, ad: Immediate },
-    OpCode { inst: STA, ad: IndirectX },
-    OpCode { inst: NOP, ad: Immediate }, // *t
-    OpCode { inst: SAX, ad: IndirectX },
-    OpCode { inst: STY, ad: Zeropage },
-    OpCode { inst: STA, ad: Zeropage },
-    OpCode { inst: STX, ad: Zeropage },
-    OpCode { inst: SAX, ad: Zeropage },
-    OpCode { inst: DEY, ad: Implicit },
-    OpCode { inst: NOP, ad: Immediate },
-    OpCode { inst: TXA, ad: Implicit },
-    OpCode { inst: ANE, ad: Immediate },
-    OpCode { inst: STY, ad: Absolute },
-    OpCode { inst: STA, ad: Absolute },
-    OpCode { inst: STX, ad: Absolute },
-    OpCode { inst: SAX, ad: Absolute },
-    OpCode { inst: BCC, ad: Relative },
-    OpCode { inst: STA, ad: IndirectY },
-    OpCode { inst: NULL, ad: None },
-    OpCode { inst: SHA, ad: IndirectY },
-    OpCode { inst: STY, ad: ZeropageX },
-    OpCode { inst: STA, ad: ZeropageX },
-    OpCode { inst: STX, ad: ZeropageY },
-    OpCode { inst: SAX, ad: ZeropageY },
-    OpCode { inst: TYA, ad: Implicit },
-    OpCode { inst: STA, ad: AbsoluteY },
-    OpCode { inst: TXS, ad: Implicit },
-    OpCode { inst: SHS, ad: AbsoluteY },
-    OpCode { inst: SHY, ad: AbsoluteX },
-    OpCode { inst: STA, ad: AbsoluteX },
-    OpCode { inst: SHX, ad: AbsoluteY },
-    OpCode { inst: SHA, ad: AbsoluteY },
-    OpCode { inst: LDY, ad: Immediate },
-    OpCode { inst: LDA, ad: IndirectX },
-    OpCode { inst: LDX, ad: Immediate },
-    OpCode { inst: LAX, ad: IndirectX },
-    OpCode { inst: LDY, ad: Zeropage },
-    OpCode { inst: LDA, ad: Zeropage },
-    OpCode { inst: LDX, ad: Zeropage },
-    OpCode { inst: LAX, ad: Zeropage },
-    OpCode { inst: TAY, ad: Implicit },
-    OpCode { inst: LDA, ad: Immediate },
-    OpCode { inst: TAX, ad: Implicit },
-    OpCode { inst: LXA, ad: Immediate },
-    OpCode { inst: LDY, ad: Absolute },
-    OpCode { inst: LDA, ad: Absolute },
-    OpCode { inst: LDX, ad: Absolute },
-    OpCode { inst: LAX, ad: Absolute },
-    OpCode { inst: BCS, ad: Relative },
-    OpCode { inst: LDA, ad: IndirectY },
-    OpCode { inst: NULL, ad: None },
-    OpCode { inst: LAX, ad: IndirectY },
-    OpCode { inst: LDY, ad: ZeropageX },
-    OpCode { inst: LDA, ad: ZeropageX },
-    OpCode { inst: LDX, ad: ZeropageY },
-    OpCode { inst: LAX, ad: ZeropageY },
-    OpCode { inst: CLV, ad: Implicit },
-    OpCode { inst: LDA, ad: AbsoluteY },
-    OpCode { inst: TSX, ad: Implicit },
-    OpCode { inst: LAS, ad: AbsoluteY },
-    OpCode { inst: LDY, ad: AbsoluteX },
-    OpCode { inst: LDA, ad: AbsoluteX },
-    OpCode { inst: LDX, ad: AbsoluteY },
-    OpCode { inst: LAX, ad: AbsoluteY },
-    OpCode { inst: CPY, ad: Immediate },
-    OpCode { inst: CMP, ad: IndirectX },
-    OpCode { inst: NOP, ad: Immediate }, // *t
-    OpCode { inst: DCP, ad: IndirectX },
-    OpCode { inst: CPY, ad: Zeropage },
-    OpCode { inst: CMP, ad: Zeropage },
-    OpCode { inst: DEC, ad: Zeropage },
-    OpCode { inst: DCP, ad: Zeropage },
-    OpCode { inst: INY, ad: Implicit },
-    OpCode { inst: CMP, ad: Immediate },
-    OpCode { inst: DEX, ad: Implicit },
-    OpCode { inst: SBX, ad: Immediate },
-    OpCode { inst: CPY, ad: Absolute },
-    OpCode { inst: CMP, ad: Absolute },
-    OpCode { inst: DEC, ad: Absolute },
-    OpCode { inst: DCP, ad: Absolute },
-    OpCode { inst: BNE, ad: Relative },
-    OpCode { inst: CMP, ad: IndirectY },
-    OpCode { inst: NULL, ad: None },
-    OpCode { inst: DCP, ad: IndirectY },
-    OpCode { inst: NOP, ad: ZeropageX },
-    OpCode { inst: CMP, ad: ZeropageX },
-    OpCode { inst: DEC, ad: ZeropageX },
-    OpCode { inst: DCP, ad: ZeropageX },
-    OpCode { inst: CLD, ad: Implicit },
-    OpCode { inst: CMP, ad: AbsoluteY },
-    OpCode { inst: NOP, ad: Implicit },
-    OpCode { inst: DCP, ad: AbsoluteY },
-    OpCode { inst: NOP, ad: AbsoluteX },
-    OpCode { inst: CMP, ad: AbsoluteX },
-    OpCode { inst: DEC, ad: AbsoluteX },
-    OpCode { inst: DCP, ad: AbsoluteX },
-    OpCode { inst: CPX, ad: Immediate },
-    OpCode { inst: SBC, ad: IndirectX },
-    OpCode { inst: NOP, ad: Immediate }, // *t 
-    OpCode { inst: ISB, ad: IndirectX },
-    OpCode { inst: CPX, ad: Zeropage },
-    OpCode { inst: SBC, ad: Zeropage },
-    OpCode { inst: INC, ad: Zeropage },
-    OpCode { inst: ISB, ad: Zeropage },
-    OpCode { inst: INX, ad: Implicit },
-    OpCode { inst: SBC, ad: Immediate },
-    OpCode { inst: NOP, ad: Implicit },
-    OpCode { inst: SBC, ad: Immediate },
-    OpCode { inst: CPX, ad: Absolute },
-    OpCode { inst: SBC, ad: Absolute },
-    OpCode { inst: INC, ad: Absolute },
-    OpCode { inst: ISB, ad: Absolute },
-    OpCode { inst: BEQ, ad: Relative },
-    OpCode { inst: SBC, ad: IndirectY },
-    OpCode { inst: NULL, ad: None },
-    OpCode { inst: ISB, ad: IndirectY },
-    OpCode { inst: NOP, ad: ZeropageX },
-    OpCode { inst: SBC, ad: ZeropageX },
-    OpCode { inst: INC, ad: ZeropageX },
-    OpCode { inst: ISB, ad: ZeropageX },
-    OpCode { inst: SED, ad: Implicit },
-    OpCode { inst: SBC, ad: AbsoluteY },
-    OpCode { inst: NOP, ad: Implicit },
-    OpCode { inst: ISB, ad: AbsoluteY },
-    OpCode { inst: NOP, ad: AbsoluteX },
-    OpCode { inst: SBC, ad: AbsoluteX },
-    OpCode { inst: INC, ad: AbsoluteX },
-    OpCode { inst: ISB, ad: AbsoluteX }
+pub const OPERATION_2: [Instruction; 8] = [
+    ASL,
+    ROL,
+    LSR,
+    ROR,
+    STX,
+    LDX,
+    DEC,
+    INC
+];
+
+pub const OPERATION_3: [Instruction; 8] = [
+    SLO,
+    RLA,
+    SRE,
+    RRA,
+    SAX, // or SHA
+    LAX,
+    DCP,
+    ISC
+];
+
+pub const ADDR_1: [AddressingMode; 8] = [
+    IndirectX,
+    Zeropage,
+    Immediate,
+    Absolute,
+    IndirectY,
+    ZeropageX,
+    AbsoluteY,
+    AbsoluteX
+];
+
+pub const ADDR_2: [AddressingMode; 8] = [
+    Immediate,
+    Zeropage,
+    Accumulator,
+    Absolute,
+    None,
+    ZeropageIndexed, // X or Y
+    None,
+    AbsoluteIndexed // X or Y
+];
+
+pub const ADDR_3: [AddressingMode; 8] = [
+    IndirectX,
+    Zeropage,
+    None,
+    Absolute,
+    IndirectY,
+    ZeropageIndexed, // X or Y
+    None,
+    AbsoluteIndexed // X or Y
+];
+
+// 0x100 = 0xFF + 1(zero) (total OPCODES)
+
+pub const OP_CYCLES: [u8; 0x100] = [
+    7, 6, 0, 8, 3, 3, 5, 5, 3, 2, 2, 2, 4, 4, 6, 6,
+    2, 5, 0, 8, 4, 4, 6, 6, 2, 4, 2, 7, 4, 4, 7, 7,
+    6, 6, 0, 8, 3, 3, 5, 5, 4, 2, 2, 2, 4, 4, 6, 6,
+    2, 5, 0, 8, 4, 4, 6, 6, 2, 4, 2, 7, 4, 4, 7, 7,
+    6, 6, 0, 8, 3, 3, 5, 5, 3, 2, 2, 2, 3, 4, 6, 6,
+    2, 5, 0, 8, 4, 4, 6, 6, 2, 4, 2, 7, 4, 4, 7, 7,
+    6, 6, 0, 8, 3, 3, 5, 5, 4, 2, 2, 2, 5, 4, 6, 6,
+    2, 5, 0, 8, 4, 4, 6, 6, 2, 4, 2, 7, 4, 4, 7, 7,
+    0, 6, 2, 6, 3, 3, 3, 3, 2, 2, 2, 2, 4, 4, 4, 4,
+    2, 6, 0, 6, 4, 4, 4, 4, 2, 5, 2, 5, 4, 5, 5, 5,
+    2, 6, 2, 6, 3, 3, 3, 3, 2, 2, 2, 2, 4, 4, 4, 4,
+    2, 5, 0, 5, 4, 4, 4, 4, 2, 4, 2, 4, 4, 4, 4, 4,
+    2, 6, 2, 8, 3, 3, 5, 5, 2, 2, 2, 2, 4, 4, 6, 6,
+    2, 5, 0, 8, 4, 4, 6, 6, 2, 4, 2, 7, 4, 4, 7, 7,
+    2, 6, 2, 8, 3, 3, 5, 5, 2, 2, 2, 2, 4, 4, 6, 6,
+    2, 5, 0, 8, 4, 4, 6, 6, 2, 4, 2, 7, 4, 4, 7, 7,
 ];
