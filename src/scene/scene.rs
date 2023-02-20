@@ -16,7 +16,7 @@ impl Scene {
             pixels: None,
         }
     }
-    pub fn getIndex() -> usize {
+    pub fn get_index() -> usize {
         // get pixel screen
         unimplemented!()
     }

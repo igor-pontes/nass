@@ -68,7 +68,7 @@ impl BUS {
             //"Not implemented"
             0x0
         } else {
-            self.cartridge.read_prg(addr - 0x6000)
+            self.cartridge.read_prg(addr)
         }
     }
 }

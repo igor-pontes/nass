@@ -1,3 +1,6 @@
+use std::fmt::format;
+use base64::{Engine as _, engine::general_purpose};
+
 use super::super::mapper::Mapper;
 
 use Mirroring::*;
@@ -34,7 +37,10 @@ impl Cartridge {
         }
     }
 
-    pub fn disassemble(bytes: &[u8]) -> Result<Cartridge, &'static str> {
+    pub fn disassemble(file: String) -> Result<Cartridge, &'static str> {
+        let mut bytes = Vec::<u8>::new();
+        general_purpose::STANDARD.decode_vec(file, &mut bytes).unwrap();
+
         if bytes[0] == 0x4E && bytes[1] == 0x45 && bytes[2] == 0x53 && bytes[3] == 0x1A {
 
             if bytes[7] & 0x12 == 2 {
@@ -60,12 +66,15 @@ impl Cartridge {
             //let contains_ram = if bytes[6] & 0x2 == 1 { true } else { false }; // 1 = yes (PGA_RAM) TODO
             // let prg_ram_size = bytes[8]; // TODO
 
-            let prg_rom = bytes[16..16 + (prg_rom_size - 1)].to_vec();
-            
+            let prg_rom = bytes[16..16 + prg_rom_size].to_vec();
+
+            //return Err(format!("{:?} {}", prg_rom[0x3FFC], prg_rom[0x3FFD]));
+            //return Err(format!("{:?} {}", prg_rom[prg_rom_size-3], prg_rom[prg_rom_size-4]));
+
             let mut chr_rom = None;
             if chr_rom_size != 0 {
                 let offset = 16 + prg_rom_size;
-                chr_rom = Some(bytes[offset..offset + (chr_rom_size - 1)].to_vec());
+                chr_rom = Some(bytes[offset..offset + chr_rom_size].to_vec());
             }
             
             let mirroring = if bytes[6] & 0x1 == 0 { Horizontal } else { Vertical };
@@ -81,10 +90,10 @@ impl Cartridge {
 
     // TODO: Use Mapper to read addresses. (Bank swuitching)
     pub fn read_prg(&self, addr: u16) -> u8 {
-        if addr < 0x2000 {
-            self.prg_ram[addr as usize]
+        if addr < 0x8000 {
+            self.prg_ram[(addr - 0x6000) as usize]
         } else {
-            self.prg_rom[addr as usize]
+            self.prg_rom[(addr - 0x8000) as usize]
         }
     }
 
