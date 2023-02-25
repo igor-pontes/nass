@@ -31,28 +31,26 @@
     $FFFE–$FFFF = IRQ/BRK vector
 */
 
-use super::super::{
-    ppu::*,
-    apu::*,
-    cartridge::*
-};
+use crate::mapper::Mapper;
+use super::super::{ ppu::*, apu::* };
 
-const RAM_SIZE: usize = 0x800; // 0x10000 = 0xFFFF + 1
+const RAM_SIZE: usize = 0x800;
 //const MEMORY_SIZE: usize = 0x10000; // 0x10000 = 0xFFFF + 1
 
-#[derive(Debug)]
+type _Mapper = Box<dyn Mapper>;
+
 pub struct BUS {
-    ram: [u8; 0x800],
-    cartridge: Cartridge,
+    ram: [u8; RAM_SIZE],
+    mapper: _Mapper,
     ppu: PPU,
     apu: APU,
 }
 
 impl BUS {
-    pub fn new(cartridge: Cartridge) -> BUS {
+    pub fn new(mapper: _Mapper) -> BUS {
         BUS {
             ram: [0; RAM_SIZE],
-            cartridge,
+            mapper,
             ppu: PPU::new(),
             apu: APU::new(),
         }
@@ -65,10 +63,10 @@ impl BUS {
         } else if addr < 0x4018 {
             self.apu.registers[(addr & 0x17) as usize]
         } else if addr < 0x6000 {
-            //"Not implemented"
+            //TODO: "Not implemented"
             0x0
         } else {
-            self.cartridge.read_prg(addr)
+            self.mapper.read_prg(addr)
         }
     }
 }

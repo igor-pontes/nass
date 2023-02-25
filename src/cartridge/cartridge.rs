@@ -1,11 +1,12 @@
-use std::fmt::format;
+use std::fmt::Debug;
 use base64::{Engine as _, engine::general_purpose};
+use crate::mapper::Mapper;
 
-use super::super::mapper::Mapper;
+use super::super::mapper;
 
 use Mirroring::*;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum Mirroring {
     Horizontal,
     Vertical,
@@ -14,93 +15,92 @@ pub enum Mirroring {
 
 #[derive(Debug)]
 pub struct Cartridge {
-    pub mapper: Mapper,
-    pub mirroring: Mirroring, // None = Ignore mirroring
+    mirror: Mirroring, // None = Ignore mirroring
     prg_rom: Vec<u8>,
     chr_rom: Option<Vec<u8>>,
-    //prg_ram: Option<Vec<u8>>,
     prg_ram: Vec<u8>,
-    chr_ram: Vec<u8>, // NOT SUITED LOGIC FOR NES 2.0 
+    chr_ram: Vec<u8>,
 }
 
 impl Cartridge {
-    //fn new(mapper: Mapper, ignore_mirroring: bool, mirroring: Mirroring, contains_ram: bool, prg_rom: Vec<u8>, chr_rom: Option<Vec<u8>>) -> Cartridge {
-    fn new(mapper: Mapper, ignore_mirroring: bool, mirroring: Mirroring, prg_rom: Vec<u8>, chr_rom: Option<Vec<u8>>) -> Cartridge {
+    fn new(ignore_m: bool, m: Mirroring, prg_rom: Vec<u8>, chr_rom: Option<Vec<u8>>) -> Cartridge {
         Cartridge {
-            mapper,
-            mirroring: if ignore_mirroring { FourScreen } else { mirroring },
+            mirror: if ignore_m { FourScreen } else { m },
             prg_rom,
             chr_rom,
-            //prg_ram: if contains_ram { Some(Vec::new()) } else { None },
             prg_ram: Vec::new(),
             chr_ram: Vec::new(),
         }
     }
 
-    pub fn disassemble(file: String) -> Result<Cartridge, &'static str> {
+    pub fn disassemble(file: String) -> Result<Box<dyn Mapper>, &'static str> {
         let mut bytes = Vec::<u8>::new();
         general_purpose::STANDARD.decode_vec(file, &mut bytes).unwrap();
 
         if bytes[0] == 0x4E && bytes[1] == 0x45 && bytes[2] == 0x53 && bytes[3] == 0x1A {
-
             if bytes[7] & 0x12 == 2 {
                 return Err("NES 2.0 not supported(yet).")
             }
-
             if bytes[6] & 0x4 == 1 {
                 return Err("Trainer not supported currently.")
             }
-
             if bytes[7] & 0x3 != 0 {
                 return Err("Console type not supported.")
             }
 
-            let prg_rom_size = bytes[4] as usize * 0x4000; // 16384
-            let chr_rom_size = bytes[5] as usize * 0x2000; // 8192
-
-            let mapper = match Mapper::get_mapper(((bytes[7] & 0xF0) | (bytes[6] & 0xF0) >> 4) as u16) {
-                Mapper::NotSupported => return Err("Mapper not suported."),
-                m => m
-            };
+            let prg_rom_banks = bytes[4] as usize; // 16384
+            let chr_rom_banks = bytes[5] as usize; // 8192
 
             //let contains_ram = if bytes[6] & 0x2 == 1 { true } else { false }; // 1 = yes (PGA_RAM) TODO
             // let prg_ram_size = bytes[8]; // TODO
-
-            let prg_rom = bytes[16..16 + prg_rom_size].to_vec();
-
-            //return Err(format!("{:?} {}", prg_rom[0x3FFC], prg_rom[0x3FFD]));
-            //return Err(format!("{:?} {}", prg_rom[prg_rom_size-3], prg_rom[prg_rom_size-4]));
-
+            
+            let prg_rom = bytes[16..16 + prg_rom_banks * 0x4000].to_vec();
+            
             let mut chr_rom = None;
-            if chr_rom_size != 0 {
-                let offset = 16 + prg_rom_size;
-                chr_rom = Some(bytes[offset..offset + chr_rom_size].to_vec());
+            if chr_rom_banks != 0 {
+                let offset = 16 + prg_rom_banks * 0x4000;
+                chr_rom = Some(bytes[offset..offset + chr_rom_banks * 0x2000].to_vec());
             }
             
             let mirroring = if bytes[6] & 0x1 == 0 { Horizontal } else { Vertical };
 
+            let c = Cartridge::new(bytes[6] & 0x8 == 1, mirroring, prg_rom, chr_rom);
 
-            //Ok(Cartridge::new(mapper, bytes[6] & 0x8 == 1, mirroring, contains_ram, prg_rom, chr_rom))
-            Ok(Cartridge::new(mapper, bytes[6] & 0x8 == 1, mirroring, prg_rom, chr_rom))
-
+            mapper::crate_mapper((bytes[7] & 0xF0) | (bytes[6] & 0xF0) >> 4, c, prg_rom_banks, chr_rom_banks)
         } else {
             Err("Only NES files supported.")
         }
     }
-
-    // TODO: Use Mapper to read addresses. (Bank swuitching)
-    pub fn read_prg(&self, addr: u16) -> u8 {
-        if addr < 0x8000 {
-            self.prg_ram[(addr - 0x6000) as usize]
-        } else {
-            self.prg_rom[(addr - 0x8000) as usize]
+    
+    pub fn read_prg_rom(&self, addr: u16) -> u8 {
+        self.prg_rom[addr as usize]
+    }
+    
+    pub fn read_chr_rom(&self, addr: u16) -> Option<u8> {
+        match &self.chr_rom {
+            Some(v) => Some(v[addr as usize]),
+            _ => None
         }
     }
-
-    pub fn read_chr(self, addr: u16) -> u8 {
-        match self.chr_rom {
-            Some(v) => v[addr as usize],
-            _ => self.chr_ram[addr as usize]
-        }
+    
+    pub fn read_prg_ram(&self, addr: u16) -> u8 {
+        self.prg_ram[addr as usize]
     }
+
+    pub fn read_chr_ram(&self, addr: u16) -> u8 {
+        self.chr_ram[addr as usize]
+    }
+
+    pub fn write_prg_ram(&mut self, addr: u16, val: u8) {
+        self.prg_ram[addr as usize] = val
+    }
+
+    pub fn write_chr_ram(&mut self, addr: u16, val: u8) {
+        self.chr_ram[addr as usize] = val
+    }
+
+    pub fn get_mirroring(&self) -> Mirroring {
+        self.mirror
+    }
+
 }

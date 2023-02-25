@@ -1,2 +1,3 @@
 mod mapper;
-pub use self::mapper::Mapper;
+mod nrom;
+pub use self::mapper::*;

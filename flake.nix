@@ -16,9 +16,11 @@
         };
       in (({ pkgs, ... }:
         pkgs.mkShell {
+          nativeBuildInputs = with pkgs; [ pkg-config openssl.dev ];
           buildInputs = with pkgs; [
             cargo
             cargo-watch
+			      openssl
             nodejs
             wasm-pack
 			      wasm-bindgen-cli

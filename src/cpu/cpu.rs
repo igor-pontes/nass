@@ -9,7 +9,7 @@ use super::{
 
 // https://en.wikipedia.org/wiki/MOS_Technology_6502
 
-pub const CLOCK_FREQUENCY: usize = 1786830; // 1786830 per second
+pub const CYCLES_PER_FRAME: usize = 1786830/60; // (Cycles / seconds) / (Frames / seconds) = (Cycles / Frames) 1786830/60 = 
 // (1/1786830) * 10^9 =~ 560 ns per cycle (60 fps)
 // Every cycle on 6502 is either a read or a write cycle.
 
@@ -34,7 +34,6 @@ enum Interrupt {
     BRK
 }
 
-#[derive(Debug)]
 pub struct CPU {
     a: u8, // Accumulator (general purpose?)
     x: u8, // general purpose register x?
@@ -43,7 +42,7 @@ pub struct CPU {
     s: u8, // Stack pointer (It indexes into a 256-byte stack at $0100-$01FF.)
     p: u8, // Status Register
     bus: BUS, // RAM needs to live as long as both CPU and BUS structs.
-    cycle: usize,
+    pub cycle: usize,
 }
 
 impl CPU {
@@ -66,11 +65,7 @@ impl CPU {
     }
 
     pub fn step(&mut self) {
-        unimplemented!()
-    }
-
-    pub fn get_cycle(&self) -> usize {
-        self.cycle
+        ()
     }
 
     fn read_address(&self, addr: u16) -> u16 {
