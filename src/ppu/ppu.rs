@@ -24,7 +24,7 @@
 const OAM_SIZE: usize = 0x100;
 
 #[derive(Debug)]
-pub struct PPU{
+pub struct PPU {
     pub registers: [u8; 8],
     oam: [u8; OAM_SIZE],
 }
@@ -36,7 +36,7 @@ impl PPU {
             oam: [0; OAM_SIZE],
         }
     }
-    pub fn read() -> u8 {
+    pub fn read(&mut self) -> u8 {
         unimplemented!()
     }
 }

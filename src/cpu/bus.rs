@@ -55,6 +55,11 @@ impl BUS {
             apu: APU::new(),
         }
     }
+
+    pub fn write(&mut self, addr: u16,val: u8) {
+        unimplemented!()
+    }
+
     pub fn read(&self, addr: u16) -> u8 { 
         if addr < 0x2000 { // Mirrors of $0000–$07FF 
             self.ram[(addr & 0x7FF) as usize]
