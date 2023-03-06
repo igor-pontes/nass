@@ -42,7 +42,7 @@ type _Mapper = Box<dyn Mapper>;
 pub struct BUS {
     ram: [u8; RAM_SIZE],
     mapper: _Mapper,
-    ppu: PPU,
+    pub ppu: PPU,
     apu: APU,
 }
 

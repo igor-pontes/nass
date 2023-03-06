@@ -30,18 +30,6 @@ pub const INST_MODE_SHIFT: u8 = 0x05; // We only care about first 3 digits
 // (https://www.masswerk.at/6502/6502_instruction_set.html#explanation)
 // E.g. column 0x01 does not have bits 1-3(1111[000]1) active.
 // E.g. column 0x02 does not have bits 0, 2, 3(1111[00]1[0]) active.
-#[repr(u8)]
-#[derive(Clone, Copy, Debug, Eq, PartialEq, IntEnum)]
-pub enum RelativeOps {
-    BPL = 0x01,
-    BMI = 0x03,
-    BVC = 0x05,
-    BVS = 0x07,
-    BCC = 0x09,
-    BCS = 0x0B,
-    BNE = 0x0D,
-    BEQ = 0x0F,
-}
 
 #[repr(u8)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq, IntEnum)]
@@ -152,6 +140,8 @@ pub enum Operation0 {
     CPX = 0x7,
 }
 
+#[repr(u8)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, IntEnum)]
 pub enum Operation1 {
     ORA = 0x0,
     AND = 0x1,

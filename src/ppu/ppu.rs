@@ -20,6 +20,8 @@
 // Each entry has 4 bytes: the sprite Y coordinate, 
 // the sprite tile number, the sprite attribute, and the sprite X coordinate. 
 
+use super::super::cpu::Interrupt;
+
 //const PPU_RAM_SIZE: usize = 0x4000; // 0x4000 = 0x3FFF + 1
 const OAM_SIZE: usize = 0x100;
 
@@ -36,6 +38,11 @@ impl PPU {
             oam: [0; OAM_SIZE],
         }
     }
+
+    pub fn step(&mut self) -> Interrupt {
+        unimplemented!()
+    }
+
     pub fn read(&mut self) -> u8 {
         unimplemented!()
     }

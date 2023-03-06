@@ -1,3 +1,5 @@
+use std::thread::LocalKey;
+
 use super::{
     bus::BUS,
     instructions::{
@@ -5,7 +7,7 @@ use super::{
         *
     },
 };
-use { int_enum::IntEnum, ImplicitOps::*};
+use int_enum::IntEnum;
 // https://en.wikipedia.org/wiki/MOS_Technology_6502
 
 pub const CYCLES_PER_FRAME: usize = 1786830/60; // (Cycles / seconds) / (Frames / seconds) = (Cycles / Frames) 1786830/60 = 
@@ -28,10 +30,11 @@ const RESET_VECTOR: u16 = 0xFFFC; // INIT CODE
 const IRQ_VECTOR: u16 = 0xFFFE; // IRQ OR BRK
 
 #[derive(PartialEq)]
-enum Interrupt {
+pub enum Interrupt {
     NMI,
     IRQ,
     BRK,
+    NULL
 }
 
 pub struct CPU {
@@ -43,11 +46,14 @@ pub struct CPU {
     p: u8, // Status Register
     bus: BUS,
     pub cycle: usize,
+    i: Interrupt
 }
 
 impl CPU {
+
     // https://en.wikibooks.org/wiki/NES_Programming/Initializing_the_NES
     pub fn new(bus: BUS) -> CPU {
+        use Interrupt::NULL;
         CPU {
             a: 0,
             x: 0,
@@ -57,6 +63,7 @@ impl CPU {
             p: 0x34,
             bus,
             cycle: 0,
+            i: NULL
         }
     }
 
@@ -65,7 +72,40 @@ impl CPU {
     }
 
     pub fn step(&mut self) {
-        ()
+        use Interrupt::*;
+        // Interrupts can't overlap here, we are running sequencially.
+        match self.i {
+            NMI => {
+                self.interrupt(NMI);
+                self.i = NULL;
+                return; 
+            },
+            IRQ => {
+                self.interrupt(IRQ);
+                self.i = NULL;
+                return;
+            },
+            _ => ()
+        }
+
+        let op = self.bus.read(self.pc);
+        self.pc += 1;
+
+        let cycle_len = OP_CYCLES[op as usize];
+
+        if self.execute_implied(op) || self.execute_relative(op) || self.operation1(op) || self.operation2(op) || self.operation0(op) {
+
+        }
+
+        // PPU
+        for _ in 0..3 {
+            let i = self.bus.ppu.step();
+            self.interrupt(i);
+        }
+    }
+
+    fn set_interrupt(&mut self, i: Interrupt) {
+        self.i = i;
     }
 
     fn interrupt(&mut self, i: Interrupt) {
@@ -81,8 +121,8 @@ impl CPU {
         // instructions (PHP and BRK) push a value with bit 4 set to 1. 
         // 0x04 = I flag
     
-        if (0x04 & self.p) == 0x04 && i != NMI && i != BRK {
-            // IRQ can't execute if I flag isn't clear.
+        if (0x04 & self.p) == 0x04 && i == IRQ {
+            // IRQ can't execute if "I" flag isn't clear.
             return;
         }
 
@@ -104,9 +144,205 @@ impl CPU {
         self.cycle += 6;
     }
 
+    fn execute_relative(&mut self, opcode: u8) -> bool { 
+        /*  match case here would be wasteful...
+            every relative operation does the same sequence of instructions... 
+
+            h  - b
+            10 - 00010000
+            30 - 00110000
+            50 - 01010000
+            70 - 01110000
+            90 - 10010000
+            B0 - 10110000
+            D0 - 11010000
+            F0 - 11110000
+            1F - 00011111 (Relative Branch Mask)
+            20 - 00100000 (Flag 0 or 1,  )
+        */ 
+
+        let (c, z, d, o, n) = (0x1 & self.p, 0x2 & self.p, 0x8 & self.p, 0x40 & self.p , 0x80 & self.p);
+        let mut opcode = opcode & 0x1F;
+        if opcode == 0x10 {
+            opcode &= 0x20;
+            if (opcode >> 5) == c || (opcode >> 4) == z || (opcode >> 2) == d || (opcode << 1) == o || (opcode << 2) == n {
+                let offset = self.bus.read(self.pc);
+                let new_pc = self.pc + offset as u16;
+                self.set_page_crossed(self.pc, new_pc, 2);
+                self.pc = new_pc;
+                self.cycle += 1; // skipcycle? why?
+            } else {
+                // branch condition not met
+                self.pc += 1;
+            }
+            true
+        } else {
+            false
+        }
+    }
+
+    fn set_page_crossed(&mut self, a: u16, b: u16, inc: u8) {
+        // https://wiki.osdev.org/Paging
+        // The 6502 CPU groups memory together into 256 byte pages. 
+        // Where one page begins and the other ends is commonly referred to as a page boundary.
+        // If offset is in the same page, no additional instructions needed.
+        if a & 0xFF00 != b & 0xFF00 {
+            // skip "inc" cycles
+        }
+    }
+
+    fn operation1(&mut self, opcode: u8) -> bool {
+        use Operation1::*;
+        if opcode & OP_MASK == 1 {
+            let mut value = 0;
+            let addr_mode = (opcode & ADDR_MODE_MASK) >> ADDR_MODE_SHIFT;
+            let inst_mode = match Operation1::from_int((opcode & INST_MODE_MASK) >> INST_MODE_SHIFT) {
+                Ok(inst) => inst,
+                _ => return false
+            };
+            let peek = |a| self.bus.read(a) as u16 ;
+
+            match ADDR_1[addr_mode as usize]  {
+                IndirectX => {
+                    let addr = peek(self.pc) + self.x as u16;
+                    // wrapping with 0xFF because sum can be more than 0xFF
+                    value = peek(peek(addr & 0xFF) + peek((addr + 1) & 0xFF) * 0x100);
+                    self.pc += 1;
+                },
+                Zeropage => {
+                    // Data from the zero page (location on ram $0000-$00FF)
+                    // https://www.nesdev.org/wiki/Sample_RAM_map 
+                    value = peek(peek(self.pc)); // dont need to wrap with "0xFF" (no sum)
+                    self.pc += 1;
+                },
+                Immediate => {
+                    value = peek(self.pc);
+                    self.pc += 1;
+                },
+                Absolute => {
+                    value = self.read_address(self.pc);
+                    self.pc += 2;
+                },
+                IndirectY => {
+                    let addr = peek(self.pc) as u16;
+                    value = peek(peek(addr) + peek((addr + 1) & 0xFF) * 0x100 + self.y as u16);
+                    self.pc += 1;
+                },
+                ZeropageX => {
+                    let addr = peek(self.pc) + self.x as u16;
+                    value = peek(addr & 0xFF);
+                    self.pc += 1;
+                },
+                AbsoluteY => {
+                    let y = self.y as u16;
+                    value = self.read_address(self.pc);
+                    // STA do not increment 1 cycle if page crossed.
+                    if inst_mode != STA {
+                        self.set_page_crossed(value, value + y, 1);
+                    }
+                    value += y;
+                    self.pc += 2;
+                },
+                AbsoluteX => {
+                    let x = self.x as u16;
+                    value = self.read_address(self.pc);
+                    // STA do not increment 1 cycle if page crossed.
+                    if inst_mode != STA {
+                        self.set_page_crossed(value, value + x, 1);
+                    }
+                    value += x;
+                    self.pc += 2;
+                },
+                _ => {}
+            };
+            match inst_mode {
+                ORA => {
+                    self.a |= value as u8;
+                    self.set_zn(self.a);
+                },
+                AND => {
+                    self.a &= value as u8;
+                    self.set_zn(self.a);
+                },
+                EOR => {
+                    self.a ^= value as u8;
+                    self.set_zn(self.a);
+                },
+                ADC => {
+                    let c = self.p & 0x1;
+                    let sum = (self.a + c) as u16 + value;
+                    //self.p &= ((sum & 0x100) >> 8) as u8;
+                    self.set_c(sum);
+                    // http://www.c-jump.com/CIS77/CPU/Overflow/lecture.html (Overflow Condition (signed))
+                    // When two signed 2's complement numbers are added, overflow is detected if:
+                    //    both operands are positive and the result is negative, or
+                    //    both operands are negative and the result is positive.
+                    //let v = ((self.a as u16 ^ sum) & (value ^ sum) & 0x80) as u8 >> 1;
+                    //self.p |= v;
+                    self.set_v(self.a as u16, value, sum);
+                    self.a = sum as u8;
+                    self.set_zn(self.a);
+                },
+                STA => {
+                    self.bus.write(value, self.a);
+                },
+                LDA => {
+                    self.a = value as u8;
+                    self.set_zn(self.a);
+                },
+                CMP => {
+                    let a = self.a as u16 | 0x8000; // little trick to simplify overflow calculation (sorry Rust)
+                    let sum = a as u16 - value;
+                    self.p &= (((sum & 0x100) >> 8) ^ 0x1) as u8;
+                    self.set_zn(sum as u8);
+                },
+                SBC => {
+                    // http://www.righto.com/2012/12/the-6502-overflow-flag-explained.html
+                    // Thus, adding the twos complement is the same as subtracting. (With the exception of the carry bit, 
+                    // which is affected by the extra 256. 
+
+                    // http://teaching.idallen.com/dat2343/10f/notes/040_overflow.txt
+                    // if c set => borrow
+                    let c = (self.p & 0x1 ^ 0x1) as u16; // NOT(c)
+                    let a = self.a as u16 | 0x8000;
+                    let sum = (a - value) - c;
+
+                    // 256 - N = twos complement of N
+                    // 255 - N = ones complement of N
+
+                    // overflow condition for unsigned-integer arithmetic
+                    // (twos-complement)
+                    // 80 + (-48) = 32 (Correct answer. But this sets c = 1(0x100)...)
+                    self.p &= (((sum & 0x100) >> 8) ^ 0x1) as u8;
+
+                    self.p |= ((a as u16 ^ sum) & (!value ^ sum) & 0x80) as u8 >> 1;
+
+                    self.a = sum as u8;
+                    self.set_zn(self.a);
+                },
+            };
+            true
+        } else {
+            false
+        }
+    }
+
+    fn operation2(&mut self, opcode: u8) -> bool {
+        false
+    }
+
+    fn operation0(&mut self, opcode: u8) -> bool {
+        false
+    }
+
     fn execute_implied(&mut self, opcode: u8) -> bool {
-        // unwrap not good... temporary.
-        match ImplicitOps::from_int(opcode).unwrap() {
+        use ImplicitOps::*;
+        let implied = match ImplicitOps::from_int(opcode) {
+            Ok(i) => i,
+            _ => return false
+        };
+
+        match implied {
             BRK => {
                 self.interrupt(Interrupt::BRK);
             },
@@ -188,6 +424,14 @@ impl CPU {
         }
     }
 
+    fn set_v(&mut self, a: u16, b: u16, sum: u16) {
+        self.p |= ((a as u16 ^ sum) & (b ^ sum) & 0x80) as u8 >> 1;
+    }
+
+    fn set_c(&mut self, sum: u16) {
+        self.p &= ((sum & 0x100) >> 8) as u8;
+    }
+
     fn push_stack(&mut self, val: u8) {
         self.bus.write(0x100 + self.s as u16, val);
         self.s -= 1;
@@ -202,5 +446,5 @@ impl CPU {
     fn read_address(&self, addr: u16) -> u16 {
         (self.bus.read(addr + 1) as u16) * 0x100 + self.bus.read(addr) as u16
     }
-    
+
 }
