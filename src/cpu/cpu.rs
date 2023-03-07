@@ -8,6 +8,7 @@ use super::{
     },
 };
 use int_enum::IntEnum;
+use js_sys::WebAssembly::instantiate_buffer;
 // https://en.wikipedia.org/wiki/MOS_Technology_6502
 
 pub const CYCLES_PER_FRAME: usize = 1786830/60; // (Cycles / seconds) / (Frames / seconds) = (Cycles / Frames) 1786830/60 = 
@@ -257,6 +258,9 @@ impl CPU {
             };
             match inst_mode {
                 ORA => {
+                    // why can't I use "peek(value)" here?
+                    // https://doc.rust-lang.org/error_codes/E0502.html 
+                    // because we have 2 match commands?
                     self.a |= value as u8;
                     self.set_zn(self.a);
                 },
@@ -272,14 +276,16 @@ impl CPU {
                     let c = self.p & 0x1;
                     let sum = (self.a + c) as u16 + value;
                     //self.p &= ((sum & 0x100) >> 8) as u8;
-                    self.set_c(sum);
+                    //self.set_c(sum);
+                    self.set_c(((sum & 0x100) >> 8) as u8);
                     // http://www.c-jump.com/CIS77/CPU/Overflow/lecture.html (Overflow Condition (signed))
                     // When two signed 2's complement numbers are added, overflow is detected if:
                     //    both operands are positive and the result is negative, or
                     //    both operands are negative and the result is positive.
                     //let v = ((self.a as u16 ^ sum) & (value ^ sum) & 0x80) as u8 >> 1;
                     //self.p |= v;
-                    self.set_v(self.a as u16, value, sum);
+                    //self.set_v(self.a as u16, value, sum);
+                    self.set_v(((self.a as u16 ^ sum) & (value ^ sum) & 0x80) as u8 >> 1);
                     self.a = sum as u8;
                     self.set_zn(self.a);
                 },
@@ -293,7 +299,8 @@ impl CPU {
                 CMP => {
                     let a = self.a as u16 | 0x8000; // little trick to simplify overflow calculation (sorry Rust)
                     let sum = a as u16 - value;
-                    self.p &= (((sum & 0x100) >> 8) ^ 0x1) as u8;
+                    //self.p &= (((sum & 0x100) >> 8) ^ 0x1) as u8;
+                    self.set_c((((sum & 0x100) >> 8) ^ 1) as u8);
                     self.set_zn(sum as u8);
                 },
                 SBC => {
@@ -313,9 +320,11 @@ impl CPU {
                     // overflow condition for unsigned-integer arithmetic
                     // (twos-complement)
                     // 80 + (-48) = 32 (Correct answer. But this sets c = 1(0x100)...)
-                    self.p &= (((sum & 0x100) >> 8) ^ 0x1) as u8;
+                    //self.p &= (((sum & 0x100) >> 8) ^ 0x1) as u8;
+                    self.set_c((((sum & 0x100) >> 8) ^ 1) as u8);
 
-                    self.p |= ((a as u16 ^ sum) & (!value ^ sum) & 0x80) as u8 >> 1;
+                    //self.p |= ((a as u16 ^ sum) & (!value ^ sum) & 0x80) as u8 >> 1;
+                    self.set_v(((a as u16 ^ sum) & (!value ^ sum) & 0x80) as u8 >> 1);
 
                     self.a = sum as u8;
                     self.set_zn(self.a);
@@ -328,10 +337,184 @@ impl CPU {
     }
 
     fn operation2(&mut self, opcode: u8) -> bool {
-        false
+        use Operation2::*;
+        if opcode & OP_MASK == 1 {
+            let mut value = 0;
+            let addr_mode = (opcode & ADDR_MODE_MASK) >> ADDR_MODE_SHIFT;
+            let inst_mode = match Operation2::from_int((opcode & INST_MODE_MASK) >> INST_MODE_SHIFT) {
+                Ok(inst) => inst,
+                _ => return false
+            };
+
+            match ADDR_2[addr_mode as usize]  {
+                Immediate => {
+                    value = self.pc;
+                    self.pc += 1;
+                },
+                Zeropage => {
+                    value = self.bus.read(self.pc) as u16;
+                    self.pc += 1;
+                },
+                Accumulator => {},
+                Absolute => {
+                    value = self.read_address(self.pc);
+                    self.pc += 2;
+                },
+                ZeropageIndexed => {
+                    value = self.bus.read(self.pc) as u16;
+                    let mut index = 0;
+                    if inst_mode == LDX || inst_mode == STX { 
+                        index = self.y as u16;
+                    } else {
+                        index = self.x as u16;
+                    };
+                    value = (value + index) & 0xFF; // zero-page memory page
+                },
+                AbsoluteIndexed => {
+                    value = self.read_address(self.pc);
+                    self.pc += 2;
+                    let mut index = 0;
+                    if inst_mode == LDX || inst_mode == STX { 
+                        index = self.y as u16;
+                    } else {
+                        index = self.x as u16;
+                    };
+                    self.set_page_crossed(value, value + index, 1);
+                    value += index; // zero-page memory page
+                },
+                _ => { return false }
+            }
+            // can't declare "operand" here... "borrow" issue.
+            // value here = address
+            match inst_mode {
+                ASL => {},               
+                ROL => {
+                    if ADDR_2[addr_mode as usize] == Accumulator {
+                        let prev_c = self.p & 0x1; // prev_c = c
+                        //self.p |= (self.a & 0x80) >> 7; // c
+                        self.set_c((self.a & 0x80) >> 7);
+                        self.a <<= 1;
+                        self.a = self.a | prev_c;
+                        self.set_zn(self.a);
+                    } else {
+                        let mut operand = self.bus.read(value);
+                        let prev_c = self.p & 0x1; // prev_c = c
+                        //self.p |= (operand & 0x80) >> 7; // c
+                        self.set_c((operand & 0x80) >> 7); // c
+                        operand = operand << 1 | prev_c;
+                        self.set_zn(operand);
+                        self.bus.write(value, operand);
+                    }
+                },
+                LSR => {},
+                ROR => {
+                    if ADDR_2[addr_mode as usize] == Accumulator {
+                        let prev_c = self.p & 1; // prev_c = c
+                        //self.p |= self.a & 1; // c
+                        self.set_c(self.a & 1);
+                        self.a >>= 1;
+                        self.a = self.a | prev_c << 7;
+                        self.set_zn(self.a);
+                    } else {
+                        let mut operand = self.bus.read(value);
+                        let prev_c = self.p & 1; // prev_c = c 
+                        //self.p |= operand & 1; // c
+                        self.set_c(operand & 1); // c
+                        operand = operand >> 1 | prev_c << 7;
+                        self.set_zn(operand);
+                    }
+                },
+                STX => {
+                    self.bus.write(value, self.x);
+                },
+                LDX => {
+                    self.x = self.bus.read(value);
+                    self.set_zn(self.x);
+                },
+                DEC => {
+                    let peek = |a| { self.bus.read(a) as u16 };
+                    let operand = ((peek(value) | 0x8000) - 1) as u8;
+                    self.set_zn(operand);
+                    self.bus.write(value, operand);
+                },
+                INC => {
+                    let peek = |a| { self.bus.read(a) as u16 };
+                    let operand = (peek(value) + 1) as u8;
+                    self.set_zn(operand);
+                    self.bus.write(value, operand);
+                },
+            }
+            true
+        } else {
+            false
+        }
     }
 
     fn operation0(&mut self, opcode: u8) -> bool {
+        use Operation0::*;
+        if opcode & OP_MASK == 1 {
+            let mut value = 0;
+            let addr_mode = (opcode & ADDR_MODE_MASK) >> ADDR_MODE_SHIFT;
+            let inst_mode = match Operation0::from_int((opcode & INST_MODE_MASK) >> INST_MODE_SHIFT) {
+                Ok(inst) => inst,
+                _ => return false
+            };
+            match ADDR_2[addr_mode as usize]  {
+                Immediate => {
+                    value = self.pc;
+                    self.pc += 1;
+                },
+                Zeropage => {
+                    value = self.bus.read(self.pc) as u16;
+                    self.pc += 1;
+                },
+                Absolute => {
+                    value = self.read_address(self.pc);
+                    self.pc += 2;
+                },
+                ZeropageIndexed => {
+                    value = self.bus.read(self.pc) as u16;
+                    value = (value + self.x as u16) & 0xFF; // zero-page memory page
+                },
+                AbsoluteIndexed => {
+                    value = self.read_address(self.pc);
+                    self.pc += 2;
+                    self.set_page_crossed(value, value + self.x as u16, 1);
+                    value += self.x as u16; // zero-page memory page
+                },
+                _ => { return false }
+            }
+            match inst_mode {
+                BIT => {
+                    let operand = self.bus.read(value);
+                    // assigning to P register is wrong! TODO
+                    //self.p |= operand & 0x80 | operand & 0x40;
+                    self.set_n(operand & 0x80);
+                    self.set_v(operand & 0x40);
+                    //self.p |= if operand & self.a == 0 { 0x02 } else { 0 };
+                    self.set_z(if operand & self.a == 0 { 0x02 } else { 0 });
+                },
+                STY => {
+                    self.bus.write(value, self.y);
+                },
+                LDY => {
+                    self.y = self.bus.read(value);
+                    self.set_zn(self.y)
+                },
+                CPY => {
+                    let diff = ((self.y as u16) | 0x8000) - self.bus.read(value) as u16;
+                    //self.p &= ((((diff & 0x100) >> 8) ^ 1) as u8);
+                    self.set_c((((diff & 0x100) >> 8) ^ 1) as u8);
+                    self.set_zn(diff as u8);
+                },
+                CPX => {
+                    let diff = ((self.x as u16) | 0x8000) - self.bus.read(value) as u16;
+                    //self.p &= (((diff & 0x100) >> 8) ^ 1) as u8;
+                    self.set_c((((diff & 0x100) >> 8) ^ 1) as u8);
+                    self.set_zn(diff as u8);
+                }
+            }
+        }
         false
     }
 
@@ -415,6 +598,10 @@ impl CPU {
         return true
     }
 
+    fn get_status(&self) -> (u8, u8, u8, u8, u8, u8, u8, u8) {
+        (self.p & 0x80, self.p & 0x40, self.p & 0x20, self.p & 0x10, self.p & 0x08, self.p & 0x04, self.p & 0x02, self.p & 0x02)
+    }
+
     fn set_zn(&mut self, val: u8) {
         if val == 0 {
             self.p |= 0x02;
@@ -424,12 +611,26 @@ impl CPU {
         }
     }
 
-    fn set_v(&mut self, a: u16, b: u16, sum: u16) {
-        self.p |= ((a as u16 ^ sum) & (b ^ sum) & 0x80) as u8 >> 1;
+    fn set_v(&mut self, v: u8) {
+        let (n, _, b5, b4, d, i, z, c) = self.get_status();
+        self.p = n | v | b5 | b4 | d | i | z | c;
+        //self.p |= ((a as u16 ^ sum) & (b ^ sum) & 0x80) as u8 >> 1;
     }
 
-    fn set_c(&mut self, sum: u16) {
-        self.p &= ((sum & 0x100) >> 8) as u8;
+    fn set_n(&mut self, n: u8) {
+        let (_, v, b5, b4, d, i, z, c) = self.get_status();
+        self.p = n | v | b5 | b4 | d | i | z | c;
+        //self.p |= ((a as u16 ^ sum) & (b ^ sum) & 0x80) as u8 >> 1;
+    }
+
+    fn set_c(&mut self, c: u8) {
+        let (n, v, b5, b4, d, i, z, _) = self.get_status();
+        self.p = n | v | b5 | b4 | d | i | z | c;
+    }
+
+    fn set_z(&mut self, z: u8) {
+        let (n, v, b5, b4, d, i, _, c) = self.get_status();
+        self.p = n | v | b5 | b4 | d | i | z | c;
     }
 
     fn push_stack(&mut self, val: u8) {

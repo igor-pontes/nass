@@ -111,7 +111,7 @@ pub fn is_immediate_nop(opcode: u8) -> bool {
     } else { false }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum AddressingMode { 
     Implicit,
     Accumulator,
@@ -132,6 +132,8 @@ pub enum AddressingMode {
 }
 // Last to calculate (if not operation_0, it's a NOP zeropage or zeropageX)
 // Blend NOP(Zpg, Zpgx), NOP(Abs, Ansx) with Operation0's Adressmode
+#[repr(u8)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, IntEnum)]
 pub enum Operation0 {
     BIT = 0x1,
     STY = 0x4, // or SHY
@@ -153,6 +155,8 @@ pub enum Operation1 {
     SBC = 0x7
 }
 
+#[repr(u8)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, IntEnum)]
 pub enum Operation2 {
     ASL = 0x0,
     ROL = 0x1,
