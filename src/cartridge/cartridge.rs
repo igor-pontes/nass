@@ -1,5 +1,4 @@
-use std::fmt::Debug;
-use base64::{Engine as _, engine::general_purpose};
+use base64::{Engine as _, engine::general_purpose}; // "Engine" as _ ??
 use crate::mapper::Mapper;
 
 use super::super::mapper;
@@ -66,7 +65,7 @@ impl Cartridge {
 
             let c = Cartridge::new(bytes[6] & 0x8 == 1, mirroring, prg_rom, chr_rom);
 
-            mapper::crate_mapper((bytes[7] & 0xF0) | (bytes[6] & 0xF0) >> 4, c, prg_rom_banks, chr_rom_banks)
+            mapper::create_mapper((bytes[7] & 0xF0) | (bytes[6] & 0xF0) >> 4, c, prg_rom_banks, chr_rom_banks)
 
         } else {
             Err("Only NES files supported.")

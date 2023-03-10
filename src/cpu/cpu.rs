@@ -83,8 +83,8 @@ impl CPU {
             return
         }
 
-        // Interrupts can't overlap here, we are running sequencially.
         match self.i {
+            // ?? what is this?
             NMI => {
                 self.interrupt(NMI);
                 self.i = NULL;
@@ -120,7 +120,7 @@ impl CPU {
 
     fn skip_dma_cycles(&mut self) {
         self.skip_cycles += 513; // OAM DMA on its own takes 513 or 514 cycles, depending on whether alignment is needed. 
-        self.skip_cycles += (self.cycle as u32) & 1;
+        self.skip_cycles += (self.cycle as u32) & 1; // alignment
     }
 
     fn interrupt(&mut self, i: Interrupt) {

@@ -8,7 +8,7 @@ pub trait Mapper {
     fn write_chr(&mut self, addr: u16, val: u8);
 }
 
-pub fn crate_mapper(mapper: u8, cartridge: Cartridge, prg_banks: usize, chr_banks: usize) -> Result<Box<dyn Mapper>, &'static str> {
+pub fn create_mapper(mapper: u8, cartridge: Cartridge, prg_banks: usize, chr_banks: usize) -> Result<Box<dyn Mapper>, &'static str> {
     match mapper {
         0 => Ok(Box::new(NROM::new(cartridge))),
         _ => Err("Mapper not implemented.")

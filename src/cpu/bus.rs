@@ -32,7 +32,7 @@
 */
 
 use crate::mapper::Mapper;
-use super::super::{ ppu::*, apu::* };
+use super::super::ppu::*;
 
 const RAM_SIZE: usize = 0x800;
 //const MEMORY_SIZE: usize = 0x10000; // 0x10000 = 0xFFFF + 1
@@ -43,7 +43,6 @@ pub struct BUS {
     ram: [u8; RAM_SIZE],
     mapper: _Mapper,
     pub ppu: PPU,
-    apu: APU,
 }
 
 impl BUS {
@@ -52,7 +51,6 @@ impl BUS {
             ram: [0; RAM_SIZE],
             mapper,
             ppu: PPU::new(),
-            apu: APU::new(),
         }
     }
 
@@ -65,13 +63,22 @@ impl BUS {
         if addr < 0x2000 { // Mirrors of $0000–$07FF 
             self.ram[(addr & 0x7FF) as usize]
         } else if addr < 0x4000 { // Mirrors of $2000–$2007
-            self.ppu.registers[((addr & 0x0007)) as usize]
+            self.ppu.read(addr)
         } else if addr < 0x4018 {
-            self.apu.registers[(addr & 0x17) as usize]
+            // https://www.nesdev.org/wiki/2A03
+            if addr == 0x4014 {
+                self.ppu.read(addr)
+            } else if addr == 0x4016 || addr == 0x4017 {
+                0 // Inputs
+            } else {
+                0 // APU not implemented.
+            }
         } else if addr < 0x6000 {
-            //TODO: "Not implemented"
-            0x0
+            // APU and I/O functionality that is normally disabled.
+            // And some cartridge space?
+            0 
         } else {
+            //  Battery Backed Save or Work RAM not implemented.
             self.mapper.read_prg(addr)
         }
     }

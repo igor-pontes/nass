@@ -1,7 +1,6 @@
 mod utils;
 mod ppu;
 mod cpu;
-mod apu;
 mod mapper;
 mod scene;
 mod cartridge;
