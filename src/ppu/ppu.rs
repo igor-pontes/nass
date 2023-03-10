@@ -38,6 +38,7 @@
 // Each palette has three colors. Each 16x16 pixel area of the background can use the backdrop color and the three colors from one of the four background palettes. 
 // The choice of palette for each 16x16 pixel area is controlled by bits in the attribute table at the end of each nametable. 
 
+use crate::cpu::BUS;
 use super::super::cpu::Interrupt;
 
 const PPU_RAM_SIZE: usize = 0x4000; // 0x4000 = 0x3FFF + 1
@@ -67,9 +68,10 @@ pub struct PPU {
     msb_addr_set: bool,
     interrupt: Interrupt,
     cycle: usize,
-    oam_dma: u8,
+    pub oam_dma: u8,
     oam: [u8; OAM_SIZE],
-    vram: [u8; PPU_RAM_SIZE]
+    vram: [u8; PPU_RAM_SIZE],
+    bus: Option<u8>,// ?
 }
 
 // https://www.nesdev.org/wiki/PPU_rendering
@@ -105,7 +107,8 @@ impl PPU {
             cycle: 0,
             oam_dma: 0,
             oam: [0; OAM_SIZE],
-            vram: [0; PPU_RAM_SIZE]
+            vram: [0; PPU_RAM_SIZE],
+            bus: None // ?
         }
     }
 
@@ -164,7 +167,7 @@ impl PPU {
         self.oam[oam_addr]
     }
     
-    fn set_oam_data(&mut self, val: u8) {
+    pub fn set_oam_data(&mut self, val: u8) {
         // OBS: Because changes to OAM should normally be made only during vblank, writing through OAMDATA is only effective for partial updates (it is too slow), and as described above, partial writes cause corruption. 
         // Most games will use the DMA feature through OAMDMA instead.
 
@@ -175,6 +178,10 @@ impl PPU {
         let oam_addr = self.registers[3] as usize;
         self.oam[oam_addr] = val;
         self.registers[3] += 1; // hopefully no overflow...
+    }
+
+    pub fn reset_oam_addr(&mut self) {
+        self.registers[3] = 0;
     }
 
     // Both "set_scroll" and "set_ppuaddr" do the same thing. Maybe merge into a single function?
@@ -217,6 +224,8 @@ impl PPU {
     }
     
     fn get_vram(&self) -> u8 {
+        // TODO: buffer?
+
         // When reading while the VRAM address is in the range 0–$3EFF (i.e., before the palettes), the read will return the contents of an internal read buffer. 
         // This internal buffer is updated only when reading PPUDATA, and so is preserved across frames. After the CPU reads and gets the contents of the internal buffer, 
         // the PPU will immediately update the internal buffer with the byte at the current VRAM address. 

@@ -55,7 +55,19 @@ impl BUS {
     }
 
     // TODO
-    pub fn write(&mut self, addr: u16,val: u8) {
+    pub fn write(&mut self, addr: u16, val: u8) {
+        // Execute OAMDMA here.
+        if addr == 0x4014 {
+            self.ppu.reset_oam_addr();
+            self.ppu.oam_dma = val; // do we need this?
+            for i in 0..0xFF {
+                let val = ((val as u16) << 8) | i;
+                let val = self.read(val);
+                self.ppu.set_oam_data(val)
+            }
+            //  If using this technique, after the DMA OAMADDR should be set to 0 before the end of vblank to prevent potential OAM corruption ? 
+            self.ppu.reset_oam_addr(); // dont know if this is correct.
+        }
         unimplemented!()
     }
 
