@@ -8,7 +8,6 @@ use super::{
     },
 };
 use int_enum::IntEnum;
-use js_sys::WebAssembly::instantiate_buffer;
 // https://en.wikipedia.org/wiki/MOS_Technology_6502
 
 pub const CYCLES_PER_FRAME: usize = 1786830/60; // (Cycles / seconds) / (Frames / seconds) = (Cycles / Frames) 1786830/60 = 
@@ -30,7 +29,7 @@ const NMI_VECTOR: u16 = 0xFFFA;
 const RESET_VECTOR: u16 = 0xFFFC; // INIT CODE
 const IRQ_VECTOR: u16 = 0xFFFE; // IRQ OR BRK
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Clone, Copy)]
 pub enum Interrupt {
     NMI,
     IRQ,
@@ -47,7 +46,8 @@ pub struct CPU {
     p: u8, // Status Register
     bus: BUS,
     pub cycle: usize,
-    i: Interrupt
+    i: Interrupt,
+    skip_cycles: u32,
 }
 
 impl CPU {
@@ -64,7 +64,8 @@ impl CPU {
             p: 0x34,
             bus,
             cycle: 0,
-            i: NULL
+            i: NULL,
+            skip_cycles: 0
         }
     }
 
@@ -74,6 +75,14 @@ impl CPU {
 
     pub fn step(&mut self) {
         use Interrupt::*;
+
+        self.cycle += 1;
+
+        if self.skip_cycles > 1 {
+            self.skip_cycles -= 1;
+            return
+        }
+
         // Interrupts can't overlap here, we are running sequencially.
         match self.i {
             NMI => {
@@ -95,7 +104,7 @@ impl CPU {
         let cycle_len = OP_CYCLES[op as usize];
 
         if self.execute_implied(op) || self.execute_relative(op) || self.operation1(op) || self.operation2(op) || self.operation0(op) {
-
+            self.skip_cycles += cycle_len;
         }
 
         // PPU
@@ -107,6 +116,11 @@ impl CPU {
 
     fn set_interrupt(&mut self, i: Interrupt) {
         self.i = i;
+    }
+
+    fn skip_dma_cycles(&mut self) {
+        self.skip_cycles += 513; // OAM DMA on its own takes 513 or 514 cycles, depending on whether alignment is needed. 
+        self.skip_cycles += (self.cycle as u32) & 1;
     }
 
     fn interrupt(&mut self, i: Interrupt) {
@@ -162,16 +176,18 @@ impl CPU {
             20 - 00100000 (Flag 0 or 1,  )
         */ 
 
-        let (c, z, d, o, n) = (0x1 & self.p, 0x2 & self.p, 0x8 & self.p, 0x40 & self.p , 0x80 & self.p);
+        // review this. this is broken.
+        let (c, z, d, v, n) = (0x1 & self.p, 0x2 & self.p, 0x8 & self.p, 0x40 & self.p , 0x80 & self.p);
         let mut opcode = opcode & 0x1F;
         if opcode == 0x10 {
             opcode &= 0x20;
-            if (opcode >> 5) == c || (opcode >> 4) == z || (opcode >> 2) == d || (opcode << 1) == o || (opcode << 2) == n {
+            // this is wrong. will redo.
+            if (opcode >> 5) == c || (opcode >> 4) == z || (opcode >> 2) == d || (opcode << 1) == v || (opcode << 2) == n {
                 let offset = self.bus.read(self.pc);
+                self.skip_cycles += 1;
                 let new_pc = self.pc + offset as u16;
                 self.set_page_crossed(self.pc, new_pc, 2);
                 self.pc = new_pc;
-                self.cycle += 1; // skipcycle? why?
             } else {
                 // branch condition not met
                 self.pc += 1;
@@ -182,13 +198,13 @@ impl CPU {
         }
     }
 
-    fn set_page_crossed(&mut self, a: u16, b: u16, inc: u8) {
+    fn set_page_crossed(&mut self, a: u16, b: u16, inc: u32) {
         // https://wiki.osdev.org/Paging
         // The 6502 CPU groups memory together into 256 byte pages. 
         // Where one page begins and the other ends is commonly referred to as a page boundary.
         // If offset is in the same page, no additional instructions needed.
         if a & 0xFF00 != b & 0xFF00 {
-            // skip "inc" cycles
+            self.skip_cycles += inc;
         }
     }
 
@@ -590,16 +606,11 @@ impl CPU {
                 self.set_zn(self.x);
             },
             SED => {
-                // Carry = 0x01 / Zero 0x02 / I = 0x04 / Dec = 0x08 / B = 0x10 / 1 = 0x20 / Over = 0x40 / Neg = 0x80
                 self.p |= 0x08;
             },
             _ => return false
         }
         return true
-    }
-
-    fn get_status(&self) -> (u8, u8, u8, u8, u8, u8, u8, u8) {
-        (self.p & 0x80, self.p & 0x40, self.p & 0x20, self.p & 0x10, self.p & 0x08, self.p & 0x04, self.p & 0x02, self.p & 0x02)
     }
 
     fn set_zn(&mut self, val: u8) {
@@ -612,25 +623,19 @@ impl CPU {
     }
 
     fn set_v(&mut self, v: u8) {
-        let (n, _, b5, b4, d, i, z, c) = self.get_status();
-        self.p = n | v | b5 | b4 | d | i | z | c;
-        //self.p |= ((a as u16 ^ sum) & (b ^ sum) & 0x80) as u8 >> 1;
+        self.p = (self.p & 0xBF) | v;
     }
 
     fn set_n(&mut self, n: u8) {
-        let (_, v, b5, b4, d, i, z, c) = self.get_status();
-        self.p = n | v | b5 | b4 | d | i | z | c;
-        //self.p |= ((a as u16 ^ sum) & (b ^ sum) & 0x80) as u8 >> 1;
+        self.p = (self.p & 0x7F) | n;
     }
 
     fn set_c(&mut self, c: u8) {
-        let (n, v, b5, b4, d, i, z, _) = self.get_status();
-        self.p = n | v | b5 | b4 | d | i | z | c;
+        self.p = (self.p & 0xFE) | c;
     }
 
     fn set_z(&mut self, z: u8) {
-        let (n, v, b5, b4, d, i, _, c) = self.get_status();
-        self.p = n | v | b5 | b4 | d | i | z | c;
+        self.p = (self.p & 0xFD) | z;
     }
 
     fn push_stack(&mut self, val: u8) {
