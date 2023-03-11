@@ -113,7 +113,6 @@ pub struct PPU {
 // - For even frames, the last cycle occurs normally.
 
 // * This behavior can be bypassed by keeping rendering disabled until after this scanline has passed
-// (A "frame" contains all states.)
 
 // A tile consists of 4 memory fetches, each fetch requiring 2 cycles.
 
@@ -138,6 +137,8 @@ impl PPU {
             oam: [0; OAM_SIZE],
             secondary_oam: [0; 0x20],
             vram: [0; PPU_RAM_SIZE],
+            vram_addr: todo!(),
+            temp_vram_addr: todo!(),
         }
     }
 
@@ -146,7 +147,10 @@ impl PPU {
         match self.status {
             PreRender => {
                 if self.cycle == 1 {
-                    self.clear_status();
+                    // Not cleared until the end of the next vertical blank.
+                    self.v_blank = false;
+                    self.sprite_zero = false; // I dont think this is right.
+                    self.registers[2] &= 0x1F;  // 00011111
                 }
             },
             Render => {
@@ -166,6 +170,7 @@ impl PPU {
         // TODO
         if addr < 8 {
             let addr = (addr & 0x7) as usize;
+            // TODO: apparently... need to clear "w_toggle" and "v_blank" here...
             // if addr == 2 { self.clear_ppustatus() } hmm....
             if addr == 4 { 
                 self.get_oam_data()
@@ -248,12 +253,38 @@ impl PPU {
         }
     } 
 
-    fn get_x_scroll(&self) -> u8 {
-        (self.registers[5] & 0xF0) >> 4
+    // Tile increments
+    fn set_x_inc(&mut self) {
+        // The coarse X component of v needs to be incremented when the next tile is reached.
+        // https://www.nesdev.org/wiki/PPU_scrolling
+        if (self.vram_addr & 0x001F) == 31 { // if coarse X == 31
+            self.vram_addr &= !0x001F;       // coarse X = 0
+            self.vram_addr ^= 0x0400;        // switch horizontal nametable
+        } else { 
+            self.vram_addr += 1              // increment coarse X
+        }
     }
 
-    fn get_y_scroll(&self) -> u8 {
-        self.registers[5] & 0x0F
+    fn set_y_inc(&mut self) {
+        // Row 29 is the last row of tiles in a nametable.
+        // To wrap to the next nametable when incrementing coarse Y from 29, the vertical nametable is switched by toggling bit 11, and coarse Y wraps to row 0.
+        // 0x7000 = 11100000000
+        // 0x0800 = 00010000000
+        if (self.vram_addr & 0x7000) != 0x7000 { // if fine Y < 7
+            self.vram_addr += 0x1000; // increment fine Y
+        } else {
+            self.vram_addr &= !0x7000; // fine Y = 0
+            let mut y = (self.vram_addr & 0x03E0) >> 5; // let y = coarse Y
+            if y == 29 {
+                y = 0; // coarse Y = 0
+                self.vram_addr ^= 0x0800; // switch vertical nametable
+            } else if y == 31 {
+                y = 0; // coarse Y = 0, nametable not switched
+            } else {
+                y += 1; // increment coarse Y
+            }
+            self.vram_addr = (self.vram_addr & !0x03E0) | (y << 5); // put coarse Y back into v
+        }
     }
 
     // VRAM increment
@@ -325,14 +356,6 @@ impl PPU {
         } else {
             self.show_sprites = false;
         }
-    }
-
-    fn clear_status(&mut self) {
-        // Not cleared until the end of the next vertical blank.
-        // TODO: apparently... need to clear "w_toggle" and "v_blank" here...
-        self.v_blank = false;
-        // self.sprite = false; // I dont think this is right.
-        self.registers[2] &= 0x1F; // 00011111
     }
 
 }
