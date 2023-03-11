@@ -33,6 +33,7 @@ impl Cartridge {
     }
 
     pub fn disassemble(file: String) -> Result<Box<dyn Mapper>, &'static str> {
+        // TODO: CHR_RAM not implemented correctly
         let mut bytes = Vec::<u8>::new();
         general_purpose::STANDARD.decode_vec(file, &mut bytes).unwrap();
 

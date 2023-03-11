@@ -35,8 +35,8 @@ use super::super::cpu::Interrupt;
 const PPU_RAM_SIZE: usize = 0x4000; // 0x4000 = 0x3FFF + 1
 const OAM_SIZE: usize = 0x100;
 
-const V_T_MASK: u16 = 0x7FFF;
-const X_SCROLL_MASK: u8 = 0x07;
+const V_T_MASK: u16 = 0x7FFF; // 15 bit
+const SCROLL_MASK: u8 = 0x0F;
 
 enum Status {
     PreRender,
@@ -47,6 +47,30 @@ enum Status {
 
 // I could merge "x_scroll_set" and "msb_addr_set" into one thing maybe?
 
+// Pattern Tables:
+// Each tile in the pattern table is 16 bytes, made of two planes. 
+// The first plane controls bit 0 of the color; the second plane controls bit 1.
+// Any pixel whose color is 0 is background/transparent
+// The pattern table is divided into two 256-tile sections: $0000-$0FFF, 
+// nicknamed "left", and $1000-$1FFF, nicknamed "right".
+// The value written to PPUCTRL ($2000) controls whether the background and sprites use the left half ($0000-$0FFF) 
+// or the right half ($1000-$1FFF) of the pattern table.
+
+// Nametable:
+// A nametable is a 1024 byte area of memory used by the PPU to lay out backgrounds.
+// Each byte in the nametable controls one 8x8 pixel character cell.
+// Each nametable has 30 rows of 32 tiles each, for 960 ($3C0) bytes; the rest is used by each nametable's attribute table.
+
+// Attribute table:
+// An attribute table is a 64-byte array at the end of each nametable that controls 
+// which palette is assigned to each part of the background.
+
+// The PPU addresses a 14-bit (16kB) address space.
+
+// The low two bits of $2000 select which of the four nametables to use.
+// The first write to $2005 specifies the X scroll, in pixels.
+// The second write to $2005 specifies the Y scroll, in pixels.
+
 pub struct PPU {
     registers: [u8; 8],
     status: Status,
@@ -54,18 +78,28 @@ pub struct PPU {
     show_background: bool,
     show_sprites: bool,
     v_blank: bool,
-    sprite: bool,
-    increment_vram: u8,
-    // Internal registers
+    sprite_zero: bool,
+    
+    // Background stuff
+    // The highest bit is unused for access through $2007.
+    // The PPU uses the current VRAM address for both reading and writing PPU memory thru $2007, and for fetching nametable data to draw the background. 
+    // As it's drawing the background, it updates the address to point to the nametable data currently being drawn. 
+    // Bits 10-11 hold the base address of the nametable minus $2000. Bits 12-14 are the Y offset of a scanline within a tile.
+    vram_addr: u16,
+    temp_vram_addr: u16,
     w_toggle: bool,
-    addr_v: u16, // only 15 is used (Current VRAM address)
-    addr_t: u16, // only 15 is used (Temporary VRAM address) - can also be thought of as the address of the top left onscreen tile.
-    x_scroll: u8, // only 3 bits used 
-
+    // maybe add "x_scroll" ? (https://www.nesdev.org/wiki/PPU_scrolling)
+    
+    // Each tile might represent a single letter character (sprite)? 
+    // OAM can be viewed as an array with 64 entries. 
+    // Each entry has 4 bytes: the sprite Y coordinate, the sprite tile number, the sprite attribute, and the sprite X coordinate.
+    // https://www.nesdev.org/wiki/PPU_OAM
+    oam: [u8; OAM_SIZE],
+    secondary_oam: [u8; 0x20], // 8 * 4 = 32
+    
     interrupt: Interrupt,
     cycle: usize,
     pub oam_dma: u8,
-    oam: [u8; OAM_SIZE],
     vram: [u8; PPU_RAM_SIZE],
 }
 
@@ -96,16 +130,13 @@ impl PPU {
             show_background: false,
             show_sprites: false,
             v_blank: false,
-            sprite: false,
-            increment_vram: 1,
+            sprite_zero: false,
             w_toggle: false,
-            addr_t: 0,
-            addr_v: 0,
-            x_scroll: 0,
             interrupt: NULL,
             cycle: 0,
             oam_dma: 0, // needed? maybe not. 
             oam: [0; OAM_SIZE],
+            secondary_oam: [0; 0x20],
             vram: [0; PPU_RAM_SIZE],
         }
     }
@@ -121,6 +152,7 @@ impl PPU {
             Render => {
                 // program should not access PPU memory during this time, unless rendering is turned off.
                 // https://www.nesdev.org/wiki/PPU_sprite_evaluation
+                // https://www.nesdev.org/wiki/PPU_nametables
             },
             PostRender => {},
             VerticalBlank => {},
@@ -131,6 +163,7 @@ impl PPU {
     }
 
     pub fn read(&self, addr: u16) -> u8 {
+        // TODO
         if addr < 8 {
             let addr = (addr & 0x7) as usize;
             // if addr == 2 { self.clear_ppustatus() } hmm....
@@ -145,6 +178,7 @@ impl PPU {
     }
 
     pub fn write(&mut self, addr: u16, val: u8) {
+        // TODO
         // OAMADDR is set to 0 during each of ticks 257–320 (the sprite tile loading interval) of the pre-render and visible scanlines. 
         // This also means that at the end of a normal complete rendered frame, OAMADDR will always have returned to 0.
         if addr < 8 {
@@ -184,14 +218,51 @@ impl PPU {
     fn write_twice(&mut self, reg_n: usize, val: u8) {
         let register = self.registers[reg_n];
         if self.w_toggle {
+            if reg_n == 5 {
+                let abcde = (val & 0xF8) as u16;
+                let fgh = (val & 0x07) as u16;
+                let t = self.temp_vram_addr & 0xC1F;
+                // maybe 12 wrong?
+                self.temp_vram_addr = t | abcde << 2 | fgh << 12;
+            }
+            if reg_n == 6 {
+                let t = self.temp_vram_addr & 0x7F00;
+                self.temp_vram_addr = t | val as u16;
+                self.vram_addr = self.temp_vram_addr;
+            }
             self.registers[reg_n] = (register & 0xF0) | (val & 0x0F);
             self.w_toggle = false;
         } else {
+            if reg_n == 5 {
+                let c_x_scroll = (val & 0xF8) >> 3;
+                self.temp_vram_addr = (self.temp_vram_addr & 0xFFE0) | c_x_scroll as u16;
+                // maybe x_scroll here ?
+            }
+            if reg_n == 6 {
+                let cdefgh = ((val & 0x3F) as u16) << 8;
+                let t = self.temp_vram_addr & 0xFF; // not 0x40FF because bit Z(msb) is cleared.
+                self.temp_vram_addr = t | cdefgh;
+            }
             self.registers[reg_n] = (register & 0x0F) | (val << 4);
             self.w_toggle = true;
         }
     } 
 
+    fn get_x_scroll(&self) -> u8 {
+        (self.registers[5] & 0xF0) >> 4
+    }
+
+    fn get_y_scroll(&self) -> u8 {
+        self.registers[5] & 0x0F
+    }
+
+    // VRAM increment
+    fn get_increment(&self) -> u8 {
+        let inc = self.registers[0] & 0x4;
+        if inc == 4 { 32 } else { 1 }
+    }
+
+    // VRAM address increment per CPU read/write of PPUDATA.
     fn set_vram(&mut self, val: u8) {
         // VRAM reading and writing shares the same internal address register that rendering uses. So after loading data into video memory, 
         // the program should reload the scroll position afterwards with PPUSCROLL and PPUCTRL (bits 1…0) writes in order to avoid wrong scrolling.
@@ -201,13 +272,12 @@ impl PPU {
         if (!self.show_background && !self.show_sprites) || self.v_blank {
             let ppu_addr = self.registers[6] as usize;
             self.vram[ppu_addr] = val;
-            // After access, the video memory address will increment by an amount determined by bit 2 of $2000.
-            // after access = after read?
-            self.registers[6] += self.increment_vram; // hopefully no overflow...
+            // Is self.get_increment() supposed to be here?
+            self.registers[6] += self.get_increment(); // hopefully no overflow... 
         }
     }
     
-    fn get_vram(&self) -> u8 {
+    fn get_vram(&mut self) -> u8 {
         // TODO: buffer?
 
         // When reading while the VRAM address is in the range 0–$3EFF (i.e., before the palettes), the read will return the contents of an internal read buffer. 
@@ -216,15 +286,18 @@ impl PPU {
         
         if (!self.show_background && !self.show_sprites) || self.v_blank {
             let ppu_addr = self.registers[6] as usize;
-            self.vram[ppu_addr] 
+            self.registers[6] += self.get_increment(); // hopefully no overflow...
+            self.vram[ppu_addr]
         } else {
-            0 // hmm... if statement here kinda useless then...
+            0
         }
     }
 
-    fn set_controller(&mut self) {
+    fn set_controller(&mut self, val: u8) {
         // TODO: PPU control register (PPUCTRL)
-
+        self.registers[0] = val;
+        // check if "<< 8" is right later.
+        self.temp_vram_addr = (self.temp_vram_addr & 0x73FF) | (((val & 0x3) as u16) << 8);
     }
 
     fn set_mask(&mut self, val: u8) {
@@ -254,16 +327,11 @@ impl PPU {
         }
     }
 
-    fn set_status(&mut self) {
-        // Sprite 0 Hit:  Set when a nonzero pixel of sprite 0 overlaps
-        // a nonzero background pixel; cleared at dot 1 of the pre-render (clear_ppustatus)
-        // line.  Used for raster timing. (Maybe a separate function called "set_sprite_hit"?)
-    }
-
     fn clear_status(&mut self) {
         // Not cleared until the end of the next vertical blank.
+        // TODO: apparently... need to clear "w_toggle" and "v_blank" here...
         self.v_blank = false;
-        self.sprite = false;
+        // self.sprite = false; // I dont think this is right.
         self.registers[2] &= 0x1F; // 00011111
     }
 
