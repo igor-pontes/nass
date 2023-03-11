@@ -6,46 +6,37 @@
 // https://www.reddit.com/r/EmuDev/comments/evu3u2/what_does_the_nes_ppu_actually_do/
 // https://austinmorlan.com/posts/nes_rendering_overview/
 
-/*  https://www.nesdev.org/wiki/PPU_registers
-0x0: PPUCTRL (various flags controlling PPU operation)
+//  https://www.nesdev.org/wiki/PPU_registers
 
-0x1: PPUMASK (This register controls the rendering of sprites and backgrounds, as well as colour effects. )
+/* - The 15 bit registers t and v are composed this way during rendering:
 
-0x2: PPUSTATUS (This register reflects the state of various functions inside the PPU. It is often used for determining timing. 
-    To determine when the PPU has reached a given pixel of the screen, put an opaque (non-transparent) pixel of sprite 0 there. )
+yyy NN YYYYY XXXXX
+||| || ||||| +++++-- coarse X scroll
+||| || +++++-------- coarse Y scroll
+||| ++-------------- nametable select
++++----------------- fine Y scroll
 
-0x3: OAMADDR (Write the address of OAM you want to access here.)
 
-0x4: OAMDATA (Write OAM data here. Writes will increment OAMADDR after the write; 
-    reads during vertical or forced blanking return the value from OAM at that address but do not increment. )
+* Note that while the v register has 15 bits, the PPU memory space is only 14 bits wide. The highest bit is unused for access through $2007.
 
-0x5: PPUSCROLL (This register is used to change the scroll position, that is, 
-    to tell the PPU which pixel of the nametable selected through PPUCTRL should be at the top left corner of the rendered screen)
-
-0x6: PPUADDR (After reading PPUSTATUS to reset the address latch, write the 16-bit address of VRAM you want to access here)
-
-0x7: PPUDATA ()
-
-0x4014: OAMDMA
 */
 
+// https://www.nesdev.org/wiki/PPU_scrolling 
 // https://www.nesdev.org/wiki/PPU_memory_map
 
 // OAM can be viewed as an array with 64 entries. 
-// Each entry has 4 bytes: the sprite Y coordinate, 
-// the sprite tile number, the sprite attribute, and the sprite X coordinate. 
+// Each entry has 4 bytes: the sprite Y coordinate, the sprite tile number, the sprite attribute, and the sprite X coordinate. 
 
 // Each palette has three colors. Each 16x16 pixel area of the background can use the backdrop color and the three colors from one of the four background palettes. 
 // The choice of palette for each 16x16 pixel area is controlled by bits in the attribute table at the end of each nametable. 
 
-use crate::cpu::BUS;
 use super::super::cpu::Interrupt;
 
 const PPU_RAM_SIZE: usize = 0x4000; // 0x4000 = 0x3FFF + 1
 const OAM_SIZE: usize = 0x100;
 
-const fetch_first_two_tiles_cycle: usize = 321;
-const unused_cycle: usize = 337;
+const V_T_MASK: u16 = 0x7FFF;
+const X_SCROLL_MASK: u8 = 0x07;
 
 enum Status {
     PreRender,
@@ -63,15 +54,19 @@ pub struct PPU {
     show_background: bool,
     show_sprites: bool,
     v_blank: bool,
+    sprite: bool,
     increment_vram: u8,
-    x_scroll_set: bool,
-    msb_addr_set: bool,
+    // Internal registers
+    w_toggle: bool,
+    addr_v: u16, // only 15 is used (Current VRAM address)
+    addr_t: u16, // only 15 is used (Temporary VRAM address) - can also be thought of as the address of the top left onscreen tile.
+    x_scroll: u8, // only 3 bits used 
+
     interrupt: Interrupt,
     cycle: usize,
     pub oam_dma: u8,
     oam: [u8; OAM_SIZE],
     vram: [u8; PPU_RAM_SIZE],
-    bus: Option<u8>,// ?
 }
 
 // https://www.nesdev.org/wiki/PPU_rendering
@@ -82,6 +77,7 @@ pub struct PPU {
 // - For odd frames, the cycle at the end of the scanline is skipped (this is done internally by jumping directly from (339,261) to (0,0), 
 // replacing the idle tick at the beginning of the first visible scanline with the last tick of the last dummy nametable fetch)
 // - For even frames, the last cycle occurs normally.
+
 // * This behavior can be bypassed by keeping rendering disabled until after this scanline has passed
 // (A "frame" contains all states.)
 
@@ -100,15 +96,17 @@ impl PPU {
             show_background: false,
             show_sprites: false,
             v_blank: false,
+            sprite: false,
             increment_vram: 1,
-            x_scroll_set: false,
-            msb_addr_set: false,
+            w_toggle: false,
+            addr_t: 0,
+            addr_v: 0,
+            x_scroll: 0,
             interrupt: NULL,
             cycle: 0,
-            oam_dma: 0,
+            oam_dma: 0, // needed? maybe not. 
             oam: [0; OAM_SIZE],
             vram: [0; PPU_RAM_SIZE],
-            bus: None // ?
         }
     }
 
@@ -117,16 +115,12 @@ impl PPU {
         match self.status {
             PreRender => {
                 if self.cycle == 1 {
-                }
-                if self.cycle == fetch_first_two_tiles_cycle {
-                    // TODO
-                }
-                if self.cycle == unused_cycle {
-                    // TODO
+                    self.clear_status();
                 }
             },
             Render => {
                 // program should not access PPU memory during this time, unless rendering is turned off.
+                // https://www.nesdev.org/wiki/PPU_sprite_evaluation
             },
             PostRender => {},
             VerticalBlank => {},
@@ -184,29 +178,19 @@ impl PPU {
         self.registers[3] = 0;
     }
 
-    // Both "set_scroll" and "set_ppuaddr" do the same thing. Maybe merge into a single function?
-    fn set_scroll(&mut self, val: u8) {
-        let oam_scroll = self.registers[5];
-        if self.x_scroll_set {
-            self.registers[5] = (oam_scroll & 0xF0) | (val & 0x0F);
-            self.x_scroll_set = false;
+    // $2005(PPUSCROLL) and $2006(PPUADDR) share a common write toggle w, so that the first write has one behaviour, and the second write has another. 
+    // After the second write, the toggle is reset to the first write behaviour.
+    // https://www.nesdev.org/wiki/PPU_scrolling
+    fn write_twice(&mut self, reg_n: usize, val: u8) {
+        let register = self.registers[reg_n];
+        if self.w_toggle {
+            self.registers[reg_n] = (register & 0xF0) | (val & 0x0F);
+            self.w_toggle = false;
         } else {
-            self.registers[5] = (oam_scroll & 0x0F) | (val << 4);
-            self.x_scroll_set = true;
+            self.registers[reg_n] = (register & 0x0F) | (val << 4);
+            self.w_toggle = true;
         }
     } 
-    fn set_ppuaddr(&mut self, val: u8) {
-        // The CPU writes to VRAM through a pair of registers on the PPU. First it loads an address into PPUADDR, and then it writes repeatedly to PPUDATA to fill VRAM.
-        // Valid addresses are $0000–$3FFF; higher addresses will be mirrored down.
-        let ppu_addr = self.registers[6];
-        if self.msb_addr_set {
-            self.registers[6] = (ppu_addr & 0xF0) | (val & 0x0F);
-            self.msb_addr_set = false;
-        } else {
-            self.registers[6] = (ppu_addr & 0x0F) | (val << 4);
-            self.msb_addr_set = true;
-        }
-    }
 
     fn set_vram(&mut self, val: u8) {
         // VRAM reading and writing shares the same internal address register that rendering uses. So after loading data into video memory, 
@@ -240,18 +224,34 @@ impl PPU {
 
     fn set_controller(&mut self) {
         // TODO: PPU control register (PPUCTRL)
+
     }
 
-    fn set_mask(&mut self) {
+    fn set_mask(&mut self, val: u8) {
         // TODO: PPU mask register (PPUMASK), call on write.
-        // This register controls the rendering of sprites and backgrounds, as well as colour effects.
-        // set both "show_background" and "show_sprite" here.
+
+        // A value of $1E or %00011110 enables all rendering, with no color effects. A value of $00 or %00000000 disables all rendering. 
+        // It is usually best practice to write this register only during "vblank", to prevent partial-frame visual artifacts.
 
         // If either of bits 3 or 4 is enabled, at any time outside of the vblank interval the PPU will be making continual use to the PPU address and data bus to fetch tiles to render,
         // as well as internally fetching sprite data from the OAM
 
         // If you wish to make changes to PPU memory outside of vblank (via $2007), you must set both of these bits to 0 to disable rendering and prevent conflicts.
-        // Sprite 0 hit does not trigger in any area where the background or sprites are hidden.
+
+        // -> Sprite 0 hit does not trigger in any area where the background or sprites are hidden. <-
+
+        // Disabling rendering  =  clear both bits 3 and 4
+        if val & 0x08 == 0x08 {
+            self.show_background = true;
+        } else {
+            self.show_background = false;
+        }
+        
+        if val & 0x10 == 0x10 {
+            self.show_sprites = true;
+        } else {
+            self.show_sprites = false;
+        }
     }
 
     fn set_status(&mut self) {
@@ -260,17 +260,11 @@ impl PPU {
         // line.  Used for raster timing. (Maybe a separate function called "set_sprite_hit"?)
     }
 
-    fn clear_vblank(&mut self) {
-        // ?
-        // Reading the status register will clear bit 7 (how to implement this behaviour?) and also the address latch used by PPUSCROLL and PPUADDR. (Ignore this for now...)
-        // It does not clear the sprite 0 hit or overflow bit.
-        self.registers[2] &= 0x1F;
-    }
-
     fn clear_status(&mut self) {
         // Not cleared until the end of the next vertical blank.
-        // 00011111
-        self.registers[2] &= 0x1F;
+        self.v_blank = false;
+        self.sprite = false;
+        self.registers[2] &= 0x1F; // 00011111
     }
 
 }
