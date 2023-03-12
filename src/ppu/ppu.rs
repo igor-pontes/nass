@@ -79,7 +79,6 @@ pub struct PPU {
     show_sprites: bool,
     v_blank: bool,
     sprite_zero: bool,
-    
     // Background stuff
     // The highest bit is unused for access through $2007.
     // The PPU uses the current VRAM address for both reading and writing PPU memory thru $2007, and for fetching nametable data to draw the background. 
@@ -97,6 +96,7 @@ pub struct PPU {
     oam: [u8; OAM_SIZE],
     secondary_oam: [u8; 0x20], // 8 * 4 = 32
     
+    skip_cycle: usize,
     interrupt: Interrupt,
     cycle: usize,
     pub oam_dma: u8,
@@ -139,27 +139,73 @@ impl PPU {
             vram: [0; PPU_RAM_SIZE],
             vram_addr: todo!(),
             temp_vram_addr: todo!(),
+            skip_cycle: 0
         }
     }
 
     pub fn step(&mut self) -> Interrupt {
+        // cycle starts at 0, 341 cycles total in one single scanline.
         use Status::*;
         match self.status {
             PreRender => {
+                // This scanline varies in length, depending on whether an even or an odd frame is being rendered. 
+                // For odd frames, the cycle at the end of the scanline is skipped (this is done internally by jumping directly from (339,261) to (0,0))
+                // For even frames, the last cycle occurs normally. 
+
+                // This is a dummy scanline, whose sole purpose is to fill the shift registers with the data for the first two tiles of the next scanline. 
+                // Although no pixels are rendered for this scanline, the PPU still makes the same memory accesses it would for a regular scanline.
+                if self.cycle == 0 { self.skip_cycle += 1; }
+
                 if self.cycle == 1 {
                     // Not cleared until the end of the next vertical blank.
                     self.v_blank = false;
                     self.sprite_zero = false; // I dont think this is right.
                     self.registers[2] &= 0x1F;  // 00011111
+
+                    // fetch nametable here? (= +2 cyles)
+                    self.skip_cycle += 2;
                 }
+
+                // During pixels 280 through 304 of this scanline, the vertical scroll bits are reloaded if rendering is enabled.
+
             },
             Render => {
-                // program should not access PPU memory during this time, unless rendering is turned off.
-                // https://www.nesdev.org/wiki/PPU_sprite_evaluation
-                // https://www.nesdev.org/wiki/PPU_nametables
+                // Visible scanlines (0-239), which contain the graphics to be displayed on the screen.
+                // This includes the rendering of both the background and the sprites. 
+                // During these scanlines, the PPU is busy fetching data, so the program should not access PPU memory during this time,
+                // unless rendering is turned off.
+
+                if self.cycle == 0 { self.skip_cycle += 1; } // how to skip?
+
+                if self.cycle > 0 {
+                    // The data for each tile is fetched during this phase. 
+                    // Each memory access takes 2 PPU cycles to complete, and 4 must be performed per tile.
+                    self.skip_cycle += 8;
+                }
+
+                if self.cycle > 256 {
+                    // The tile data for the sprites on the next scanline are fetched here.
+                }
+
+                if self.cycle > 320 {
+                    // This is where the first two tiles for the next scanline are fetched
+                }
+
+                if self.cycle > 320 {
+                    // This is where the first two tiles for the next scanline are fetched
+                }
             },
-            PostRender => {},
-            VerticalBlank => {},
+            PostRender => {
+                // The PPU just idles during this scanline. Even though accessing PPU memory from the program would be safe here, the VBlank flag isn't set until after this scanline.
+                // render here?
+            },
+            VerticalBlank => {
+                if self.cycle == 1 && !self.v_blank {
+                    self.v_blank = true;
+                }
+                self.skip_cycle += 1;
+                // The PPU makes no memory accesses during these scanlines, so PPU memory can be freely accessed by the program.
+            },
         }
         if self.even_frame { self.even_frame = false } else { self.even_frame = true }
         if self.cycle == 340 { self.cycle = 0; } else { self.cycle += 8; } // is this right?
@@ -308,6 +354,10 @@ impl PPU {
         }
     }
     
+    fn is_rendering(&self) -> bool {
+        self.show_background || self.show_sprites
+    }
+
     fn get_vram(&mut self) -> u8 {
         // TODO: buffer?
 
@@ -315,6 +365,7 @@ impl PPU {
         // This internal buffer is updated only when reading PPUDATA, and so is preserved across frames. After the CPU reads and gets the contents of the internal buffer, 
         // the PPU will immediately update the internal buffer with the byte at the current VRAM address. 
         
+        todo!();
         if (!self.show_background && !self.show_sprites) || self.v_blank {
             let ppu_addr = self.registers[6] as usize;
             self.registers[6] += self.get_increment(); // hopefully no overflow...
