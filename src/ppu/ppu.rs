@@ -31,19 +31,13 @@ yyy NN YYYYY XXXXX
 // The choice of palette for each 16x16 pixel area is controlled by bits in the attribute table at the end of each nametable. 
 
 use super::super::cpu::Interrupt;
+use Section::*;
 
 const PPU_RAM_SIZE: usize = 0x4000; // 0x4000 = 0x3FFF + 1
 const OAM_SIZE: usize = 0x100;
 
 const V_T_MASK: u16 = 0x7FFF; // 15 bit
 const SCROLL_MASK: u8 = 0x0F;
-
-enum Status {
-    PreRender,
-    PostRender, // 240 scanline
-    Render,
-    VerticalBlank // 241-260 scanlines (241 = vblank NMI set)
-}
 
 // I could merge "x_scroll_set" and "msb_addr_set" into one thing maybe?
 
@@ -73,34 +67,30 @@ enum Status {
 
 pub struct PPU {
     registers: [u8; 8],
-    status: Status,
     even_frame: bool,
     show_background: bool,
     show_sprites: bool,
     v_blank: bool,
     sprite_zero: bool,
-    // Background stuff
-    // The highest bit is unused for access through $2007.
-    // The PPU uses the current VRAM address for both reading and writing PPU memory thru $2007, and for fetching nametable data to draw the background. 
-    // As it's drawing the background, it updates the address to point to the nametable data currently being drawn. 
-    // Bits 10-11 hold the base address of the nametable minus $2000. Bits 12-14 are the Y offset of a scanline within a tile.
     vram_addr: u16,
     temp_vram_addr: u16,
     w_toggle: bool,
-    // maybe add "x_scroll" ? (https://www.nesdev.org/wiki/PPU_scrolling)
-    
-    // Each tile might represent a single letter character (sprite)? 
-    // OAM can be viewed as an array with 64 entries. 
-    // Each entry has 4 bytes: the sprite Y coordinate, the sprite tile number, the sprite attribute, and the sprite X coordinate.
-    // https://www.nesdev.org/wiki/PPU_OAM
+    bg_section: Section, // Left = $0000-$0FFF / Right = $1000-$1FFF
+    sprt_section: Section, // Left = $0000-$0FFF / Right = $1000-$1FFF
+    hide_bg: bool,
+    hide_sprt: bool,
+    x_scroll: u8, // Only first 3 bits used. (https://www.nesdev.org/wiki/PPU_scrolling)
     oam: [u8; OAM_SIZE],
     secondary_oam: [u8; 0x20], // 8 * 4 = 32
-    
-    skip_cycle: usize,
-    interrupt: Interrupt,
+    line: usize,
     cycle: usize,
     pub oam_dma: u8,
     vram: [u8; PPU_RAM_SIZE],
+}
+
+enum Section {
+    Left,
+    Right
 }
 
 // https://www.nesdev.org/wiki/PPU_rendering
@@ -121,95 +111,89 @@ pub struct PPU {
 
 impl PPU {
     pub fn new() -> PPU {
-        use Interrupt::*;
         PPU {
             registers: [0; 8],
-            status: Status::PreRender,
             even_frame: true,
             show_background: false,
             show_sprites: false,
             v_blank: false,
             sprite_zero: false,
             w_toggle: false,
-            interrupt: NULL,
             cycle: 0,
+            line: 261,
             oam_dma: 0, // needed? maybe not. 
             oam: [0; OAM_SIZE],
             secondary_oam: [0; 0x20],
             vram: [0; PPU_RAM_SIZE],
             vram_addr: todo!(),
             temp_vram_addr: todo!(),
-            skip_cycle: 0
+            bg_section: Left,
+            sprt_section: Left,
+            x_scroll: 0,
+            hide_bg: false,
+            hide_sprt: false
         }
     }
 
     pub fn step(&mut self) -> Interrupt {
-        // cycle starts at 0, 341 cycles total in one single scanline.
-        use Status::*;
-        match self.status {
-            PreRender => {
-                // This scanline varies in length, depending on whether an even or an odd frame is being rendered. 
-                // For odd frames, the cycle at the end of the scanline is skipped (this is done internally by jumping directly from (339,261) to (0,0))
-                // For even frames, the last cycle occurs normally. 
-
-                // This is a dummy scanline, whose sole purpose is to fill the shift registers with the data for the first two tiles of the next scanline. 
-                // Although no pixels are rendered for this scanline, the PPU still makes the same memory accesses it would for a regular scanline.
-                if self.cycle == 0 { self.skip_cycle += 1; }
-
-                if self.cycle == 1 {
-                    // Not cleared until the end of the next vertical blank.
-                    self.v_blank = false;
-                    self.sprite_zero = false; // I dont think this is right.
-                    self.registers[2] &= 0x1F;  // 00011111
-
-                    // fetch nametable here? (= +2 cyles)
-                    self.skip_cycle += 2;
-                }
-
-                // During pixels 280 through 304 of this scanline, the vertical scroll bits are reloaded if rendering is enabled.
-
-            },
-            Render => {
-                // Visible scanlines (0-239), which contain the graphics to be displayed on the screen.
-                // This includes the rendering of both the background and the sprites. 
-                // During these scanlines, the PPU is busy fetching data, so the program should not access PPU memory during this time,
-                // unless rendering is turned off.
-
-                if self.cycle == 0 { self.skip_cycle += 1; } // how to skip?
-
-                if self.cycle > 0 {
-                    // The data for each tile is fetched during this phase. 
-                    // Each memory access takes 2 PPU cycles to complete, and 4 must be performed per tile.
-                    self.skip_cycle += 8;
-                }
-
-                if self.cycle > 256 {
-                    // The tile data for the sprites on the next scanline are fetched here.
-                }
-
-                if self.cycle > 320 {
-                    // This is where the first two tiles for the next scanline are fetched
-                }
-
-                if self.cycle > 320 {
-                    // This is where the first two tiles for the next scanline are fetched
-                }
-            },
-            PostRender => {
-                // The PPU just idles during this scanline. Even though accessing PPU memory from the program would be safe here, the VBlank flag isn't set until after this scanline.
-                // render here?
-            },
-            VerticalBlank => {
-                if self.cycle == 1 && !self.v_blank {
-                    self.v_blank = true;
-                }
-                self.skip_cycle += 1;
-                // The PPU makes no memory accesses during these scanlines, so PPU memory can be freely accessed by the program.
-            },
+        use Interrupt::*;
+        // Post-render & vblank
+        if self.line >= 240 && self.line <= 260 {
+            let mut i = NULL;
+            if self.cycle == 1 { 
+                self.v_blank = true;
+                i = NMI;
+            }
+            self.cycle += 1;
+            return i
         }
-        if self.even_frame { self.even_frame = false } else { self.even_frame = true }
-        if self.cycle == 340 { self.cycle = 0; } else { self.cycle += 8; } // is this right?
-        self.interrupt
+
+        // Render & Pre-render
+        // Visible dots
+        if self.cycle > 0 && self.cycle <= 256 {
+            // Pre-render only
+            if self.cycle == 1 && self.line == 261 {
+                self.v_blank = false;
+                self.sprite_zero = false;
+                // TODO: clear overflow 
+            }
+            // tiles here
+            if self.show_background {
+                let x = (((self.cycle - 1) % 8) / 8) == 1;
+                if self.hide_bg || x {
+                    let tile_addr = self.read(0x2000 | (self.vram_addr & 0x0FFF));
+                    // https://www.nesdev.org/wiki/PPU_pattern_tables
+                    let mut tile = (tile_addr as u16) * 16 + ((self.vram_addr >> 12) & 7);
+                    match self.bg_section {
+                        // 0HRRRRCCCCPTTT
+                        // 00111111111111
+                        Left => { tile &= 0x1FFF },
+                        Right => { tile &= 0x3FFF }
+                    }
+                }
+            }
+        }
+        // vert(v) = vert(t)each tick (Pre-render only)
+        if self.cycle >= 280 && self.cycle <= 304 && self.line == 261 {
+            // I dont think we need to assign this everytime.
+            self.vram_addr = (self.vram_addr & 0x41F) | self.temp_vram_addr;
+        }
+
+        // Pre-render only
+        if self.cycle == 339 && self.line == 261 && !self.even_frame {
+            // skip to (0,0) if odd frame and on pre-render line        
+            // dont need to set "even_frame" to true.
+            self.cycle = 0;
+            self.line = 0;
+        }
+
+        if self.cycle == 340 {
+            self.cycle = 0;
+            self.line += 1;
+        }
+
+        self.cycle += 1;
+        return NULL
     }
 
     pub fn read(&self, addr: u16) -> u8 {
@@ -249,11 +233,6 @@ impl PPU {
     pub fn set_oam_data(&mut self, val: u8) {
         // OBS: Because changes to OAM should normally be made only during vblank, writing through OAMDATA is only effective for partial updates (it is too slow), and as described above, partial writes cause corruption. 
         // Most games will use the DMA feature through OAMDMA instead.
-
-        // reads during vertical or forced blanking return the value from OAM at that address but do not increment.
-
-        // Writes to OAMDATA during rendering (on the pre-render line and the visible lines 0–239, provided either sprite or background rendering is enabled) do not modify values in OAM, 
-        // but do perform a glitchy increment of OAMADDR
         let oam_addr = self.registers[3] as usize;
         self.oam[oam_addr] = val;
         self.registers[3] += 1; // hopefully no overflow...
@@ -287,7 +266,7 @@ impl PPU {
             if reg_n == 5 {
                 let c_x_scroll = (val & 0xF8) >> 3;
                 self.temp_vram_addr = (self.temp_vram_addr & 0xFFE0) | c_x_scroll as u16;
-                // maybe x_scroll here ?
+                self.x_scroll = val & 3;
             }
             if reg_n == 6 {
                 let cdefgh = ((val & 0x3F) as u16) << 8;
@@ -300,7 +279,7 @@ impl PPU {
     } 
 
     // Tile increments
-    fn set_x_inc(&mut self) {
+    fn inc_v_h(&mut self) {
         // The coarse X component of v needs to be incremented when the next tile is reached.
         // https://www.nesdev.org/wiki/PPU_scrolling
         if (self.vram_addr & 0x001F) == 31 { // if coarse X == 31
@@ -311,7 +290,7 @@ impl PPU {
         }
     }
 
-    fn set_y_inc(&mut self) {
+    fn inc_v_v(&mut self) {
         // Row 29 is the last row of tiles in a nametable.
         // To wrap to the next nametable when incrementing coarse Y from 29, the vertical nametable is switched by toggling bit 11, and coarse Y wraps to row 0.
         // 0x7000 = 11100000000
@@ -378,35 +357,23 @@ impl PPU {
     fn set_controller(&mut self, val: u8) {
         // TODO: PPU control register (PPUCTRL)
         self.registers[0] = val;
-        // check if "<< 8" is right later.
+       // check if "<< 8" is right later.
         self.temp_vram_addr = (self.temp_vram_addr & 0x73FF) | (((val & 0x3) as u16) << 8);
+        if (val & 0x10) == 0x10 { self.bg_section = Right; } else { self.bg_section = Left; }
+        if (val & 8) == 8 { self.sprt_section = Right; } else { self.sprt_section = Left; }
     }
 
     fn set_mask(&mut self, val: u8) {
-        // TODO: PPU mask register (PPUMASK), call on write.
-
-        // A value of $1E or %00011110 enables all rendering, with no color effects. A value of $00 or %00000000 disables all rendering. 
-        // It is usually best practice to write this register only during "vblank", to prevent partial-frame visual artifacts.
-
-        // If either of bits 3 or 4 is enabled, at any time outside of the vblank interval the PPU will be making continual use to the PPU address and data bus to fetch tiles to render,
-        // as well as internally fetching sprite data from the OAM
-
-        // If you wish to make changes to PPU memory outside of vblank (via $2007), you must set both of these bits to 0 to disable rendering and prevent conflicts.
-
-        // -> Sprite 0 hit does not trigger in any area where the background or sprites are hidden. <-
-
+        // Sprite 0 hit does not trigger in any area where the background or sprites are hidden. <-
         // Disabling rendering  =  clear both bits 3 and 4
-        if val & 0x08 == 0x08 {
-            self.show_background = true;
-        } else {
-            self.show_background = false;
-        }
-        
-        if val & 0x10 == 0x10 {
-            self.show_sprites = true;
-        } else {
-            self.show_sprites = false;
-        }
+        self.registers[1] = val;
+        // Each clock cycle = 1 pixel
+        // Show background in leftmost 8 pixels of screen
+        if val & 0x2 == 0x2 { self.hide_bg = true; } else { self.hide_bg = false; }
+        // Show sprites in leftmost 8 pixels of screen
+        if val & 0x4 == 0x4 { self.hide_sprt = true; } else { self.hide_sprt = false; }
+        if val & 0x8 == 0x8 { self.show_background = true; } else { self.show_background = false; }
+        if val & 0x10 == 0x10 { self.show_sprites = true; } else { self.show_sprites = false; }
     }
 
 }
