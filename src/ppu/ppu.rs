@@ -3,12 +3,11 @@
 
 // The Nintendo Entertainment System (NES) has a standard display resolution of 256 × 240 pixels.
 
-// https://www.reddit.com/r/EmuDev/comments/evu3u2/what_does_the_nes_ppu_actually_do/
+// https://archive.nes.science/nesdev-forums/f10/t9324.xhtml
 // https://austinmorlan.com/posts/nes_rendering_overview/
+// https://www.nesdev.org/wiki/PPU_registers
 
-//  https://www.nesdev.org/wiki/PPU_registers
-
-/* - The 15 bit registers t and v are composed this way during rendering:
+/*  The 15 bit registers t and v are composed this way during rendering:
 
 yyy NN YYYYY XXXXX
 ||| || ||||| +++++-- coarse X scroll
@@ -16,9 +15,7 @@ yyy NN YYYYY XXXXX
 ||| ++-------------- nametable select
 +++----------------- fine Y scroll
 
-
-* Note that while the v register has 15 bits, the PPU memory space is only 14 bits wide. The highest bit is unused for access through $2007.
-
+    Note that while the v register has 15 bits, the PPU memory space is only 14 bits wide. The highest bit is unused for access through $2007.
 */
 
 // https://www.nesdev.org/wiki/PPU_scrolling 
@@ -26,9 +23,6 @@ yyy NN YYYYY XXXXX
 
 // OAM can be viewed as an array with 64 entries. 
 // Each entry has 4 bytes: the sprite Y coordinate, the sprite tile number, the sprite attribute, and the sprite X coordinate. 
-
-// Each palette has three colors. Each 16x16 pixel area of the background can use the backdrop color and the three colors from one of the four background palettes. 
-// The choice of palette for each 16x16 pixel area is controlled by bits in the attribute table at the end of each nametable. 
 
 use super::super::cpu::Interrupt;
 use Section::*;
@@ -38,8 +32,6 @@ const OAM_SIZE: usize = 0x100;
 
 const V_T_MASK: u16 = 0x7FFF; // 15 bit
 const SCROLL_MASK: u8 = 0x0F;
-
-// I could merge "x_scroll_set" and "msb_addr_set" into one thing maybe?
 
 // Pattern Tables:
 // Each tile in the pattern table is 16 bytes, made of two planes. 
@@ -98,14 +90,6 @@ enum Section {
 // +Each scanline+ lasts for +341 PPU clock cycles+ (113.667 CPU clock cycles; 1 CPU cycle = 3 PPU cycles),
 // with each clock cycle producing one pixel.
 
-// - For odd frames, the cycle at the end of the scanline is skipped (this is done internally by jumping directly from (339,261) to (0,0), 
-// replacing the idle tick at the beginning of the first visible scanline with the last tick of the last dummy nametable fetch)
-// - For even frames, the last cycle occurs normally.
-
-// * This behavior can be bypassed by keeping rendering disabled until after this scanline has passed
-
-// A tile consists of 4 memory fetches, each fetch requiring 2 cycles.
-
 // Some cartridges have a CHR ROM, which holds a fixed set of graphics tile data available to the PPU.
 // Other cartridges have a CHR RAM that holds data that the CPU has copied from PRG ROM through a port on the PPU. 
 
@@ -135,11 +119,14 @@ impl PPU {
         }
     }
 
+    // Outside of rendering, reads from or writes to $2007 will add either 1 or 32 to v depending on the VRAM increment bit set via $2000
     pub fn step(&mut self) -> Interrupt {
+        // Each step = 1 pixel
         use Interrupt::*;
+
         // Post-render & vblank
+        let mut i = NULL;
         if self.line >= 240 && self.line <= 260 {
-            let mut i = NULL;
             if self.cycle == 1 { 
                 self.v_blank = true;
                 i = NMI;
@@ -151,31 +138,71 @@ impl PPU {
         // Render & Pre-render
         // Visible dots
         if self.cycle > 0 && self.cycle <= 256 {
+            // While the system palette contains a total of 64 colors, a single frame has its own palette that is a subset of the system palette. 
+            // Let’s call that set of colors the frame palette
             // Pre-render only
             if self.cycle == 1 && self.line == 261 {
                 self.v_blank = false;
                 self.sprite_zero = false;
                 // TODO: clear overflow 
             }
+            let mut bg_color = 0;
             // tiles here
             if self.show_background {
-                let x = (((self.cycle - 1) % 8) / 8) == 1;
-                if self.hide_bg || x {
-                    let tile_addr = self.read(0x2000 | (self.vram_addr & 0x0FFF));
+                let x = self.cycle - 1;
+                let x_fine = (x + (self.x_scroll) as usize) % 8;
+                if !self.hide_bg || x >= 8 {
+                    let v = self.vram_addr;
+                    // The high bits of "vram_addr" are used for fine Y during rendering.
+                    // Addressing nametable data only requires 12 bits, 
+                    // with the high 2 CHR address lines fixed to the 0x2000 region
+                    // Indexes into the Pattern Table.
+                    let tile = self.read(0x2000 | (v & 0x0FFF)); // nametable?
                     // https://www.nesdev.org/wiki/PPU_pattern_tables
-                    let mut tile = (tile_addr as u16) * 16 + ((self.vram_addr >> 12) & 7);
+                    // The implementation of scrolling has two components. 
+                    // + Two fine offsets, specifying what part of an 8x8 tile each pixel falls on. 
+                    // + Two coarse offsets, specifying which tile. 
+                    let mut addr = (tile as u16) * 16 + ((v >> 12) & 7);
+                    
                     match self.bg_section {
-                        // 0HRRRRCCCCPTTT
-                        // 00111111111111
-                        Left => { tile &= 0x1FFF },
-                        Right => { tile &= 0x3FFF }
+                        // 0(H)RRRRCCCCPTTT
+                        // is the msb = 0? check if something goes wrong.
+                        Left => { addr &= 0x0FFF }, // review "0x0FFF"
+                        Right => { addr |= 0x1000 }
                     }
+                    
+                    // Fetch the low-order byte of an 8x1 pixel sliver of pattern table from $0000-$0FF7 or $1000-$1FF7.
+                    // Fetch the high-order byte of this sliver from an address 8 bytes higher.
+                    // Every cycle, a bit is fetched from the 4 background shift registers in order to create a pixel on screen. 
+                    // Exactly which bit is fetched depends on the fine X scroll.
+                    // If only the bit in the first plane is set to 1: The pixel's color index is 1.
+                    bg_color = (((self.read(addr) as u16) >> (7 ^ x_fine)) & 1) as u8;  // plane 0 (pattern table)
+                    // If only the bit in the second plane is set to 1: The pixel's color index is 2. (Thats why << 1)
+                    bg_color |= ((((self.read(addr + 8) as u16) >> (7 ^ x_fine)) & 1) << 1) as u8;  // plane 0 + plane 1 (pattern table)
+                    // indices for palette, 1 byte represents 1 tile
+                    // Each byte controls the palette of a 32×32 pixel or 4×4 tile part of the nametable.
+                    // With each tile being 8x8 pixels.
+
+                    // bgopaque = bg_color?
+                    // Palette: (each tile) 2x2 (each tile = 16x16 pixels) or 4x4 (each tile = 8x8 pixels) => Nametable: (each tile) 8x8
+                    let attr_table = self.read(0x23C0 | (v & 0x0C00) | ((v >> 4) & 0x38) | ((v >> 2) & 0x07)) as u16;
+                    // use second bit of each Coarse offset (= every 16 pixels of data, horizontal/vertical)
+                    // 1 8x8 tile = 00 => 2 8x8 tile = 01 => 3 9x9 tile = 10 => 4 8x8 tile = 11 => ... (Horizontal)
+                    let shift = ((v >> 4) & 4) | v & 2;
+                    // select quadrant (16 pixel each) color
+                    bg_color |= ((attr_table >> shift) << 2) as u8;
+
+                    if x_fine == 7 { self.inc_v_h(); }
                 }
+            }
+
+            if self.show_sprites {
+
             }
         }
         // vert(v) = vert(t)each tick (Pre-render only)
         if self.cycle >= 280 && self.cycle <= 304 && self.line == 261 {
-            // I dont think we need to assign this everytime.
+            // I dont think we need to assign this every tick.
             self.vram_addr = (self.vram_addr & 0x41F) | self.temp_vram_addr;
         }
 
@@ -187,13 +214,14 @@ impl PPU {
             self.line = 0;
         }
 
+        // ?
         if self.cycle == 340 {
             self.cycle = 0;
             self.line += 1;
         }
 
         self.cycle += 1;
-        return NULL
+        return i
     }
 
     pub fn read(&self, addr: u16) -> u8 {
@@ -266,7 +294,10 @@ impl PPU {
             if reg_n == 5 {
                 let c_x_scroll = (val & 0xF8) >> 3;
                 self.temp_vram_addr = (self.temp_vram_addr & 0xFFE0) | c_x_scroll as u16;
-                self.x_scroll = val & 3;
+                // The low 3 bits of X sent to $2005 (first write) control the fine pixel offset within the 8x8 tile.
+                // The low 3 bits goes into the separate x register, which just selects one of 8 pixels coming out of a set of shift registers. 
+                // This fine X value does not change during rendering; the only thing that changes it is a $2005 first write.
+                self.x_scroll = val & 3; 
             }
             if reg_n == 6 {
                 let cdefgh = ((val & 0x3F) as u16) << 8;
@@ -313,9 +344,11 @@ impl PPU {
     }
 
     // VRAM increment
+    // Outside of rendering, reads from or writes to $2007 will add either 1 or 32 to v depending on the VRAM increment bit set via $2000. 
+    // During rendering (on the pre-render line and the visible lines 0-239, provided either background or sprite rendering is enabled), 
+    // it will update v in an odd way, triggering a coarse X increment and a Y increment simultaneously (with normal wrapping behavior)
     fn get_increment(&self) -> u8 {
-        let inc = self.registers[0] & 0x4;
-        if inc == 4 { 32 } else { 1 }
+        if self.registers[0] & 0x4 == 4 { 32 } else { 1 }
     }
 
     // VRAM address increment per CPU read/write of PPUDATA.
@@ -369,9 +402,9 @@ impl PPU {
         self.registers[1] = val;
         // Each clock cycle = 1 pixel
         // Show background in leftmost 8 pixels of screen
-        if val & 0x2 == 0x2 { self.hide_bg = true; } else { self.hide_bg = false; }
+        if val & 0x2 == 0x2 { self.hide_bg = false; } else { self.hide_bg = true; }
         // Show sprites in leftmost 8 pixels of screen
-        if val & 0x4 == 0x4 { self.hide_sprt = true; } else { self.hide_sprt = false; }
+        if val & 0x4 == 0x4 { self.hide_sprt = false; } else { self.hide_sprt = true; }
         if val & 0x8 == 0x8 { self.show_background = true; } else { self.show_background = false; }
         if val & 0x10 == 0x10 { self.show_sprites = true; } else { self.show_sprites = false; }
     }
