@@ -1,23 +1,7 @@
-//use crate::cpu::bus::BUS;
-//use bitvec::prelude::*;
-
 // The Nintendo Entertainment System (NES) has a standard display resolution of 256 × 240 pixels.
-
 // https://archive.nes.science/nesdev-forums/f10/t9324.xhtml
 // https://austinmorlan.com/posts/nes_rendering_overview/
 // https://www.nesdev.org/wiki/PPU_registers
-
-/*  The 15 bit registers t and v are composed this way during rendering:
-
-yyy NN YYYYY XXXXX
-||| || ||||| +++++-- coarse X scroll
-||| || +++++-------- coarse Y scroll
-||| ++-------------- nametable select
-+++----------------- fine Y scroll
-
-    Note that while the v register has 15 bits, the PPU memory space is only 14 bits wide. The highest bit is unused for access through $2007.
-*/
-
 // https://www.nesdev.org/wiki/PPU_scrolling 
 // https://www.nesdev.org/wiki/PPU_memory_map
 
@@ -64,6 +48,7 @@ pub struct PPU {
     show_sprites: bool,
     v_blank: bool,
     sprite_zero: bool,
+    sprt_size: usize,
     vram_addr: u16,
     temp_vram_addr: u16,
     w_toggle: bool,
@@ -78,6 +63,7 @@ pub struct PPU {
     cycle: usize,
     pub oam_dma: u8,
     vram: [u8; PPU_RAM_SIZE],
+    frame: [u8; 0x3C0]
 }
 
 enum Section {
@@ -121,9 +107,8 @@ impl PPU {
 
     // Outside of rendering, reads from or writes to $2007 will add either 1 or 32 to v depending on the VRAM increment bit set via $2000
     pub fn step(&mut self) -> Interrupt {
-        // Each step = 1 pixel
         use Interrupt::*;
-
+        // Each step = 1 pixel
         // Post-render & vblank
         let mut i = NULL;
         if self.line >= 240 && self.line <= 260 {
@@ -134,10 +119,9 @@ impl PPU {
             self.cycle += 1;
             return i
         }
-
         // Render & Pre-render
-        // Visible dots
         if self.cycle > 0 && self.cycle <= 256 {
+            // Visible dots
             // While the system palette contains a total of 64 colors, a single frame has its own palette that is a subset of the system palette. 
             // Let’s call that set of colors the frame palette
             // Pre-render only
@@ -146,10 +130,11 @@ impl PPU {
                 self.sprite_zero = false;
                 // TODO: clear overflow 
             }
-            let mut bg_color = 0;
+            let (mut bg_color, mut sprt_color) = (0, 0);
+            let (x, y) = (self.cycle - 1, self.line);
+
             // tiles here
             if self.show_background {
-                let x = self.cycle - 1;
                 let x_fine = (x + (self.x_scroll) as usize) % 8;
                 if !self.hide_bg || x >= 8 {
                     let v = self.vram_addr;
@@ -163,14 +148,15 @@ impl PPU {
                     // + Two fine offsets, specifying what part of an 8x8 tile each pixel falls on. 
                     // + Two coarse offsets, specifying which tile. 
                     let mut addr = (tile as u16) * 16 + ((v >> 12) & 7);
-                    
+                
                     match self.bg_section {
                         // 0(H)RRRRCCCCPTTT
                         // is the msb = 0? check if something goes wrong.
-                        Left => { addr &= 0x0FFF }, // review "0x0FFF"
+                        Left => { addr &= 0x0FFF },
                         Right => { addr |= 0x1000 }
                     }
-                    
+                    // https://www.nesdev.org/wiki/PPU_palettes 
+                    // Pixel value from tile data (0b000vv) ("tile data" = pattern table data)
                     // Fetch the low-order byte of an 8x1 pixel sliver of pattern table from $0000-$0FF7 or $1000-$1FF7.
                     // Fetch the high-order byte of this sliver from an address 8 bytes higher.
                     // Every cycle, a bit is fetched from the 4 background shift registers in order to create a pixel on screen. 
@@ -183,21 +169,70 @@ impl PPU {
                     // Each byte controls the palette of a 32×32 pixel or 4×4 tile part of the nametable.
                     // With each tile being 8x8 pixels.
 
-                    // bgopaque = bg_color?
-                    // Palette: (each tile) 2x2 (each tile = 16x16 pixels) or 4x4 (each tile = 8x8 pixels) => Nametable: (each tile) 8x8
-                    let attr_table = self.read(0x23C0 | (v & 0x0C00) | ((v >> 4) & 0x38) | ((v >> 2) & 0x07)) as u16;
+                    // Attr_table: (each tile) 2x2 (each tile = 16x16 pixels) or 4x4 (each tile = 8x8 pixels) => Nametable: (each tile) 8x8
+                    let attr_table = self.read(0x23C0 | (v & 0x0C00) | ((v >> 4) & 0x38) | ((v >> 2) & 0x07));
                     // use second bit of each Coarse offset (= every 16 pixels of data, horizontal/vertical)
                     // 1 8x8 tile = 00 => 2 8x8 tile = 01 => 3 9x9 tile = 10 => 4 8x8 tile = 11 => ... (Horizontal)
-                    let shift = ((v >> 4) & 4) | v & 2;
-                    // select quadrant (16 pixel each) color
-                    bg_color |= ((attr_table >> shift) << 2) as u8;
+                    let shift = ((v >> 4) & 4) | v & 2; // e.g. "000" = first quadrant; "010"; second quadrant; ...
 
-                    if x_fine == 7 { self.inc_v_h(); }
+                    // Palette number from attribute table or OAM (0b0pp00)
+                    // select quadrant (16 pixel each) color
+                    bg_color |= ((attr_table >> shift) & 3) << 2; // 0b0ppvv
                 }
+                if x_fine == 7 { self.inc_v_h(); } // increment x_fine each 8 cycle
             }
 
-            if self.show_sprites {
+            if self.show_sprites && (!self.hide_sprt || x >= 8) {
+                // scan every sprite from OAM?
+                for i in 0..8 {
+                    // fine_x sprite offset 
+                    let sprt_x = self.oam[i * 4 + 3] as usize;
+                    // if (x - sprt_x) >= 0, render until next 8x8 tile(each 8 cycle period).
+                    if 0 > (x - sprt_x) || (x - sprt_x) >= 8 { continue; }
 
+                    let (sprt_y, sprt_tile, sprt_attr) = (self.oam[i * 4 + 0] as usize, self.oam[i * 4 + 1] as usize, self.oam[i * 4 + 2] as usize);
+                    let x_shift = (x - sprt_x) % 8;
+                    let y_offset = (y - sprt_y) % self.sprt_size;
+
+                    // https://www.nesdev.org/wiki/PPU_OAM
+                    if (sprt_attr & 0x40) == 0 { x_shift ^= 7 } 
+                    if (sprt_attr & 0x80) != 0 { y_offset ^= self.sprt_size - 1 }
+
+                    let mut addr = 0;
+                    if self.sprt_size == 8 {
+                        addr = (sprt_tile * 16 + sprt_y) as u16;
+                        match self.sprt_section {
+                            Left => addr &= 0x0FFF,
+                            Right => addr |= 0x1000
+                        }
+                    } else {
+                        // tile next column = next 8 pixels of the 16 pixel sprite.
+                        y_offset = (y_offset & 7) | ((y_offset & 8) << 1);
+                        let tile = sprt_tile as u16;
+                        /* 
+                        76543210
+                        ||||||||
+                        |||||||+- Bank ($0000 or $1000) of tiles
+                        +++++++-- Tile number of top of sprite (0 to 254; bottom half gets the next tile)
+                        */
+                        addr =  (tile >> 1) * 32 + y_offset as u16; // 00tttttt000000 (Pattern T. address)
+                        addr = (tile & 1) << 12;
+                    }
+                    // Pixel value from tile data (0b000vv)
+                    // (x_shif) = which bit from current pattern table...
+                    sprt_color = (((self.read(addr) as u16) >> (7 ^ x_shift)) & 1) as u8;
+                    sprt_color |= ((((self.read(addr + 8) as u16) >> (7 ^ x_shift)) & 1) << 1) as u8;
+                    // + 0x10 to get sprite palette
+                    sprt_color += 0x10; // 0b100vv
+                    // Palette number from attribute table or OAM (only need top-left quadrant)
+                    sprt_color += ((sprt_attr as u8) & 3) << 2; // 0b1ppcc
+
+                    if !self.sprite_zero && self.show_background && i == 0 {
+                        self.sprite_zero = true;
+                    }
+
+                    break;
+                } 
             }
         }
         // vert(v) = vert(t)each tick (Pre-render only)
@@ -394,6 +429,7 @@ impl PPU {
         self.temp_vram_addr = (self.temp_vram_addr & 0x73FF) | (((val & 0x3) as u16) << 8);
         if (val & 0x10) == 0x10 { self.bg_section = Right; } else { self.bg_section = Left; }
         if (val & 8) == 8 { self.sprt_section = Right; } else { self.sprt_section = Left; }
+        if (val & 0x20) == 0x20 { self.sprt_size = 16; } else { self.sprt_size = 8; }
     }
 
     fn set_mask(&mut self, val: u8) {
