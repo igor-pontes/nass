@@ -7,7 +7,7 @@ use crate::cpu::BUS;
 use super::super::cpu::Interrupt;
 use Section::*;
 
-const PPU_RAM_SIZE: usize = 0x4000; // 0x4000 = 0x3FFF + 1
+const PPU_RAM_SIZE: usize = 0x4000;
 const OAM_SIZE: usize = 0x100;
 
 // Pattern Tables:
@@ -35,12 +35,12 @@ const OAM_SIZE: usize = 0x100;
 // The second write to $2005 specifies the Y scroll, in pixels.
 
 pub struct PPU<'a> {
-    //registers: [u8; 8],
     even_frame: bool,
     show_background: bool,
     show_sprites: bool,
     v_blank: bool,
     sprite_zero: bool,
+    going_across: bool,
     sprt_size: usize,
     vram_addr: u16,
     temp_vram_addr: u16,
@@ -78,7 +78,6 @@ enum Section {
 impl<'a> PPU<'a> {
     pub fn new() -> PPU<'a> {
         PPU {
-            //registers: [0; 8],
             even_frame: true,
             show_background: false,
             show_sprites: false,
@@ -100,11 +99,12 @@ impl<'a> PPU<'a> {
             hide_bg: false,
             hide_sprt: false,
             frame: [[0; 0x100]; 0xF0],
-            bus: None
+            bus: None,
+            going_across: true
         }
     }
 
-    pub fn set_bus(&mut self, b: &BUS) { self.bus = Some(b); }
+    pub fn set_bus(&mut self, b: &'a BUS) { self.bus = Some(b); }
 
     // Outside of rendering, reads from or writes to $2007 will add either 1 or 32 to v depending on the VRAM increment bit set via $2000
     pub fn step(&mut self) -> Interrupt {
@@ -306,7 +306,7 @@ impl<'a> PPU<'a> {
             self.temp_vram_addr = self.temp_vram_addr & 0x7F00 | val;
             self.vram_addr = self.temp_vram_addr;
             self.w_toggle = false;
-            (reg & 0xF0) | (val as u8) & 0x0F
+            (val as u8) & 0x0F
         } else {
             self.temp_vram_addr = self.temp_vram_addr & 0xFF | (val & 0x3F) << 8;
             self.w_toggle = true;
@@ -318,7 +318,7 @@ impl<'a> PPU<'a> {
         if self.w_toggle {
             self.temp_vram_addr = self.temp_vram_addr & 0xC1F | (val & 0xF8) << 2 | (val & 0x07) << 12;
             self.w_toggle = true;
-            (reg & 0xF0) | (val as u8) & 0x0F
+            (val as u8) & 0x0F
         } else {
             self.temp_vram_addr = (self.temp_vram_addr & 0xFFE0) | (val & 0xF8) >> 3;
             self.x_scroll = (val & 3) as u8;
@@ -365,48 +365,10 @@ impl<'a> PPU<'a> {
     // Outside of rendering, reads from or writes to $2007 will add either 1 or 32 to v depending on the VRAM increment bit set via $2000. 
     // During rendering (on the pre-render line and the visible lines 0-239, provided either background or sprite rendering is enabled), 
     // it will update v in an odd way, triggering a coarse X increment and a Y increment simultaneously (with normal wrapping behavior)
-    fn get_increment(&self) -> u8 {
-        if self.registers[0] & 0x4 == 4 { 32 } else { 1 }
-    }
-
-    // VRAM address increment per CPU read/write of PPUDATA.
-    fn set_vram(&mut self, val: u8) {
-        // VRAM reading and writing shares the same internal address register that rendering uses. So after loading data into video memory, 
-        // the program should reload the scroll position afterwards with PPUSCROLL and PPUCTRL (bits 1…0) writes in order to avoid wrong scrolling.
-
-        // When the screen is turned off by disabling the background/sprite rendering flag with the PPUMASK or during vertical blank, 
-        // you can read or write data from VRAM through this port. 
-        if (!self.show_background && !self.show_sprites) || self.v_blank {
-            let ppu_addr = self.registers[6] as usize;
-            self.vram[ppu_addr] = val;
-            // Is self.get_increment() supposed to be here?
-            self.registers[6] += self.get_increment(); // hopefully no overflow... 
-        }
-    }
     
-    fn is_rendering(&self) -> bool {
-        self.show_background || self.show_sprites
-    }
-
-    fn get_vram(&mut self) -> u8 {
-        // TODO: buffer?
-
-        // When reading while the VRAM address is in the range 0–$3EFF (i.e., before the palettes), the read will return the contents of an internal read buffer. 
-        // This internal buffer is updated only when reading PPUDATA, and so is preserved across frames. After the CPU reads and gets the contents of the internal buffer, 
-        // the PPU will immediately update the internal buffer with the byte at the current VRAM address. 
-        
-        todo!();
-        if (!self.show_background && !self.show_sprites) || self.v_blank {
-            let ppu_addr = self.registers[6] as usize;
-            self.registers[6] += self.get_increment(); // hopefully no overflow...
-            self.vram[ppu_addr]
-        } else {
-            0
-        }
-    }
 
     pub fn set_controller(&mut self, val: u8) {
-       // TODO: PPU control register (PPUCTRL)
+
         self.temp_vram_addr = (self.temp_vram_addr & 0x73FF) | (((val & 0x3) as u16) << 8); // check "<< 8" later.
         if (val & 0x10) == 0x10 { self.bg_section = Right; } else { self.bg_section = Left; }
         if (val & 8) == 8 { self.sprt_section = Right; } else { self.sprt_section = Left; }
@@ -418,10 +380,11 @@ impl<'a> PPU<'a> {
         // Disabling rendering  =  clear both bits 3 and 4
         // Each clock cycle = 1 pixel
         // Show background in leftmost 8 pixels of screen
-        if val & 0x2 == 0x2 { self.hide_bg = false; } else { self.hide_bg = true; }
+        if val & 4 == 4 { self.going_across = false; } else { self.going_across = true; }
+        if val & 2 == 2 { self.hide_bg = false; } else { self.hide_bg = true; }
         // Show sprites in leftmost 8 pixels of screen
-        if val & 0x4 == 0x4 { self.hide_sprt = false; } else { self.hide_sprt = true; }
-        if val & 0x8 == 0x8 { self.show_background = true; } else { self.show_background = false; }
+        if val & 4 == 4 { self.hide_sprt = false; } else { self.hide_sprt = true; }
+        if val & 8 == 8 { self.show_background = true; } else { self.show_background = false; }
         if val & 0x10 == 0x10 { self.show_sprites = true; } else { self.show_sprites = false; }
     }
 

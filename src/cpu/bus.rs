@@ -49,7 +49,7 @@ pub struct BUS<'a> {
 
 impl<'a> BUS<'a> {
     pub fn new(mapper: _Mapper) -> BUS<'a> {
-        let b = BUS {
+        let mut b = BUS {
             ram: [0; RAM_SIZE],
             mapper,
             ppu: PPU::new(),
@@ -60,9 +60,7 @@ impl<'a> BUS<'a> {
         b
     }
 
-    // TODO
     pub fn write(&mut self, addr: u16, val: u8) {
-        // Execute OAMDMA here.
         if addr < 0x2000 {
             self.ram[(addr & 0x7FF) as usize] = val;
         } else if addr < 0x4000 { // Mirrors of $2000–$2007
@@ -70,12 +68,11 @@ impl<'a> BUS<'a> {
             let reg_data = self.ppu_registers[reg];
             if reg == 0 { self.ppu_registers[0] = val; self.ppu.set_controller(val); }
             else if reg == 1 { self.ppu_registers[1] = val; self.ppu.set_mask(val); }
-            else if reg == 2 { self.ppu_registers[2] = val; } // TODO
+            else if reg == 2 { () } // TODO
             else if reg == 5  { self.ppu_registers[5] = self.ppu.set_scroll(reg_data, val as u16); }
             else if reg == 6 { self.ppu_registers[6] = self.ppu.set_address(reg_data, val as u16); }
             else { self.ppu_registers[reg] = val; }
         } else if addr == 0x4014 {
-            //  If using this technique, after the DMA OAMADDR should be set to 0 before the end of vblank to prevent potential OAM corruption ? 
             self.ppu_registers[3] = 0;
             for i in 0..0xFF {
                 let val = ((val as u16) << 8) | i;
@@ -83,8 +80,11 @@ impl<'a> BUS<'a> {
                 self.ppu_registers[3] += 1;
             }
             self.ppu_registers[3] = 0;
+        } else if addr < 0x6000 {
+            ()
+        } else {
+            self.mapper.write_prg(addr, val);
         }
-        unimplemented!()
     }
 
     pub fn read(&self, addr: u16) -> u8 { 
@@ -94,18 +94,9 @@ impl<'a> BUS<'a> {
             let reg = (addr & 7) as usize;
             self.ppu_registers[reg]
         } else if addr < 0x4018 {
-            // https://www.nesdev.org/wiki/2A03
-            if addr == 0x4014 {
-                0
-            } else if addr == 0x4016 || addr == 0x4017 {
+            if addr == 0x4016 || addr == 0x4017 {
                 0 // Inputs
-            } else {
-                0 // APU not implemented.
-            }
-        } else if addr < 0x6000 {
-            // APU and I/O functionality that is normally disabled.
-            // And some cartridge space?
-            0 
+            } else { 0 }
         } else {
             //  Battery Backed Save or Work RAM not implemented.
             self.mapper.read_prg(addr)
