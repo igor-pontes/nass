@@ -176,7 +176,7 @@ impl CPU {
             20 - 00100000 (Flag 0 or 1,  )
         */ 
 
-        // review this. this is broken.
+        // TODO: review this. this is broken.
         let (c, z, d, v, n) = (0x1 & self.p, 0x2 & self.p, 0x8 & self.p, 0x40 & self.p , 0x80 & self.p);
         let mut opcode = opcode & 0x1F;
         if opcode == 0x10 {

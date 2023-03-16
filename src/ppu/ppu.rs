@@ -14,9 +14,6 @@ use Section::*;
 const PPU_RAM_SIZE: usize = 0x4000; // 0x4000 = 0x3FFF + 1
 const OAM_SIZE: usize = 0x100;
 
-const V_T_MASK: u16 = 0x7FFF; // 15 bit
-const SCROLL_MASK: u8 = 0x0F;
-
 // Pattern Tables:
 // Each tile in the pattern table is 16 bytes, made of two planes. 
 // The first plane controls bit 0 of the color; the second plane controls bit 1.
@@ -63,7 +60,7 @@ pub struct PPU {
     cycle: usize,
     pub oam_dma: u8,
     vram: [u8; PPU_RAM_SIZE],
-    frame: [u8; 0x3C0]
+    frame: [[u8; 0x100]; 0xF0]
 }
 
 enum Section {
@@ -95,20 +92,22 @@ impl PPU {
             oam: [0; OAM_SIZE],
             secondary_oam: [0; 0x20],
             vram: [0; PPU_RAM_SIZE],
-            vram_addr: todo!(),
-            temp_vram_addr: todo!(),
+            vram_addr: 0,
+            temp_vram_addr: 0,
             bg_section: Left,
             sprt_section: Left,
+            sprt_size: 0,
             x_scroll: 0,
             hide_bg: false,
-            hide_sprt: false
+            hide_sprt: false,
+            frame: [[0; 0x100]; 0xF0]
         }
     }
 
     // Outside of rendering, reads from or writes to $2007 will add either 1 or 32 to v depending on the VRAM increment bit set via $2000
     pub fn step(&mut self) -> Interrupt {
         use Interrupt::*;
-        // Each step = 1 pixel
+        // Each dot = 1 pixel
         // Post-render & vblank
         let mut i = NULL;
         if self.line >= 240 && self.line <= 260 {
@@ -120,7 +119,7 @@ impl PPU {
             return i
         }
         // Render & Pre-render
-        if self.cycle > 0 && self.cycle <= 256 {
+        if self.cycle > 0 && self.cycle <= 256 { // 256?
             // Visible dots
             // While the system palette contains a total of 64 colors, a single frame has its own palette that is a subset of the system palette. 
             // Let’s call that set of colors the frame palette
@@ -130,7 +129,7 @@ impl PPU {
                 self.sprite_zero = false;
                 // TODO: clear overflow 
             }
-            let (mut bg_color, mut sprt_color) = (0, 0);
+            let (mut bg_color, mut sprt_color, mut bg_opaque, mut sprt_opaque, mut sprt_foreground) = (0, 0, false, true, true);
             let (x, y) = (self.cycle - 1, self.line);
 
             // tiles here
@@ -162,12 +161,15 @@ impl PPU {
                     // Every cycle, a bit is fetched from the 4 background shift registers in order to create a pixel on screen. 
                     // Exactly which bit is fetched depends on the fine X scroll.
                     // If only the bit in the first plane is set to 1: The pixel's color index is 1.
+                    // "7 ^ x_fine" = subtracting
                     bg_color = (((self.read(addr) as u16) >> (7 ^ x_fine)) & 1) as u8;  // plane 0 (pattern table)
                     // If only the bit in the second plane is set to 1: The pixel's color index is 2. (Thats why << 1)
                     bg_color |= ((((self.read(addr + 8) as u16) >> (7 ^ x_fine)) & 1) << 1) as u8;  // plane 0 + plane 1 (pattern table)
                     // indices for palette, 1 byte represents 1 tile
                     // Each byte controls the palette of a 32×32 pixel or 4×4 tile part of the nametable.
                     // With each tile being 8x8 pixels.
+
+                    bg_opaque = if bg_color != 0 { true } else { false };
 
                     // Attr_table: (each tile) 2x2 (each tile = 16x16 pixels) or 4x4 (each tile = 8x8 pixels) => Nametable: (each tile) 8x8
                     let attr_table = self.read(0x23C0 | (v & 0x0C00) | ((v >> 4) & 0x38) | ((v >> 2) & 0x07));
@@ -184,15 +186,15 @@ impl PPU {
 
             if self.show_sprites && (!self.hide_sprt || x >= 8) {
                 // scan every sprite from OAM?
-                for i in 0..8 {
+                for i in 0..64 {
                     // fine_x sprite offset 
                     let sprt_x = self.oam[i * 4 + 3] as usize;
                     // if (x - sprt_x) >= 0, render until next 8x8 tile(each 8 cycle period).
                     if 0 > (x - sprt_x) || (x - sprt_x) >= 8 { continue; }
 
                     let (sprt_y, sprt_tile, sprt_attr) = (self.oam[i * 4 + 0] as usize, self.oam[i * 4 + 1] as usize, self.oam[i * 4 + 2] as usize);
-                    let x_shift = (x - sprt_x) % 8;
-                    let y_offset = (y - sprt_y) % self.sprt_size;
+                    let mut x_shift = (x - sprt_x) % 8;
+                    let mut y_offset = (y - sprt_y) % self.sprt_size;
 
                     // https://www.nesdev.org/wiki/PPU_OAM
                     if (sprt_attr & 0x40) == 0 { x_shift ^= 7 } 
@@ -215,25 +217,56 @@ impl PPU {
                         |||||||+- Bank ($0000 or $1000) of tiles
                         +++++++-- Tile number of top of sprite (0 to 254; bottom half gets the next tile)
                         */
-                        addr =  (tile >> 1) * 32 + y_offset as u16; // 00tttttt000000 (Pattern T. address)
+                        addr = (tile >> 1) * 32 + y_offset as u16; // 00tttttt000000 (Pattern T. address)
                         addr = (tile & 1) << 12;
                     }
+
+                    // Sprites with lower OAM indices are drawn in front.
+                    // (For example, sprite 0 is in front of sprite 1, which is in front of sprite 63.)
                     // Pixel value from tile data (0b000vv)
                     // (x_shif) = which bit from current pattern table...
                     sprt_color = (((self.read(addr) as u16) >> (7 ^ x_shift)) & 1) as u8;
                     sprt_color |= ((((self.read(addr + 8) as u16) >> (7 ^ x_shift)) & 1) << 1) as u8;
+                    
+                    // review
+                    if sprt_color == 0 {
+                        sprt_opaque = false;
+                        continue;
+                    } else {
+                        sprt_opaque = true;
+                    };
+
                     // + 0x10 to get sprite palette
                     sprt_color += 0x10; // 0b100vv
-                    // Palette number from attribute table or OAM (only need top-left quadrant)
+                    // Palette number(byte 2) from OAM.
                     sprt_color += ((sprt_attr as u8) & 3) << 2; // 0b1ppcc
 
-                    if !self.sprite_zero && self.show_background && i == 0 {
+                    // https://www.nesdev.org/wiki/PPU_OAM#Byte_2
+                    // 0x20 = Priority (0: in front of background; 1: behind background)
+                    sprt_foreground = if sprt_attr & 0x20 == 0x20 { false } else { true };
+
+                    // Set when a nonzero pixel of sprite 0 overlaps
+                    // a nonzero background pixel; cleared at dot 1 of the pre-render
+                    // line. Used for raster timing.
+                    if !self.sprite_zero && self.show_background && i == 0 && sprt_opaque && bg_opaque {
                         self.sprite_zero = true;
-                    }
+                    };
 
                     break;
                 } 
             }
+
+            let mut palette_addr = bg_color;
+
+            if !bg_opaque {
+                if sprt_opaque { palette_addr = sprt_color; } else { palette_addr = 0; }
+            } else {
+                if sprt_foreground { palette_addr = sprt_color; }
+            }
+
+            // store color
+            frame[x][y] = ;
+
         }
         // vert(v) = vert(t)each tick (Pre-render only)
         if self.cycle >= 280 && self.cycle <= 304 && self.line == 261 {
