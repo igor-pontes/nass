@@ -1,12 +1,8 @@
 // The Nintendo Entertainment System (NES) has a standard display resolution of 256 × 240 pixels.
-// https://archive.nes.science/nesdev-forums/f10/t9324.xhtml
-// https://austinmorlan.com/posts/nes_rendering_overview/
-// https://www.nesdev.org/wiki/PPU_registers
-// https://www.nesdev.org/wiki/PPU_scrolling 
-// https://www.nesdev.org/wiki/PPU_memory_map
-
 // OAM can be viewed as an array with 64 entries. 
 // Each entry has 4 bytes: the sprite Y coordinate, the sprite tile number, the sprite attribute, and the sprite X coordinate. 
+
+use crate::cpu::BUS;
 
 use super::super::cpu::Interrupt;
 use Section::*;
@@ -38,8 +34,8 @@ const OAM_SIZE: usize = 0x100;
 // The first write to $2005 specifies the X scroll, in pixels.
 // The second write to $2005 specifies the Y scroll, in pixels.
 
-pub struct PPU {
-    registers: [u8; 8],
+pub struct PPU<'a> {
+    //registers: [u8; 8],
     even_frame: bool,
     show_background: bool,
     show_sprites: bool,
@@ -58,9 +54,10 @@ pub struct PPU {
     secondary_oam: [u8; 0x20], // 8 * 4 = 32
     line: usize,
     cycle: usize,
-    pub oam_dma: u8,
+    oam_dma: u8,
     vram: [u8; PPU_RAM_SIZE],
-    frame: [[u8; 0x100]; 0xF0]
+    frame: [[u8; 0x100]; 0xF0],
+    bus: Option<&'a BUS<'a>>
 }
 
 enum Section {
@@ -76,10 +73,12 @@ enum Section {
 // Some cartridges have a CHR ROM, which holds a fixed set of graphics tile data available to the PPU.
 // Other cartridges have a CHR RAM that holds data that the CPU has copied from PRG ROM through a port on the PPU. 
 
-impl PPU {
-    pub fn new() -> PPU {
+// impl<'a> introduces a new lifetime parameter for the whole impl block. 
+// It is then used in the type: impl<'a> Type<'a> { .. }
+impl<'a> PPU<'a> {
+    pub fn new() -> PPU<'a> {
         PPU {
-            registers: [0; 8],
+            //registers: [0; 8],
             even_frame: true,
             show_background: false,
             show_sprites: false,
@@ -100,9 +99,12 @@ impl PPU {
             x_scroll: 0,
             hide_bg: false,
             hide_sprt: false,
-            frame: [[0; 0x100]; 0xF0]
+            frame: [[0; 0x100]; 0xF0],
+            bus: None
         }
     }
+
+    pub fn set_bus(&mut self, b: &BUS) { self.bus = Some(b); }
 
     // Outside of rendering, reads from or writes to $2007 will add either 1 or 32 to v depending on the VRAM increment bit set via $2000
     pub fn step(&mut self) -> Interrupt {
@@ -156,9 +158,6 @@ impl PPU {
                     }
                     // https://www.nesdev.org/wiki/PPU_palettes 
                     // Pixel value from tile data (0b000vv) ("tile data" = pattern table data)
-                    // Fetch the low-order byte of an 8x1 pixel sliver of pattern table from $0000-$0FF7 or $1000-$1FF7.
-                    // Fetch the high-order byte of this sliver from an address 8 bytes higher.
-                    // Every cycle, a bit is fetched from the 4 background shift registers in order to create a pixel on screen. 
                     // Exactly which bit is fetched depends on the fine X scroll.
                     // If only the bit in the first plane is set to 1: The pixel's color index is 1.
                     // "7 ^ x_fine" = subtracting
@@ -265,15 +264,14 @@ impl PPU {
             }
 
             // store color
-            frame[x][y] = ;
-
+            // store pixel color on frame buffer
+            //frame[x][y] = ;
         }
         // vert(v) = vert(t)each tick (Pre-render only)
         if self.cycle >= 280 && self.cycle <= 304 && self.line == 261 {
             // I dont think we need to assign this every tick.
             self.vram_addr = (self.vram_addr & 0x41F) | self.temp_vram_addr;
         }
-
         // Pre-render only
         if self.cycle == 339 && self.line == 261 && !self.even_frame {
             // skip to (0,0) if odd frame and on pre-render line        
@@ -281,101 +279,53 @@ impl PPU {
             self.cycle = 0;
             self.line = 0;
         }
-
-        // ?
         if self.cycle == 340 {
             self.cycle = 0;
             self.line += 1;
         }
-
         self.cycle += 1;
         return i
     }
 
     pub fn read(&self, addr: u16) -> u8 {
-        // TODO
-        if addr < 8 {
-            let addr = (addr & 0x7) as usize;
-            // TODO: apparently... need to clear "w_toggle" and "v_blank" here...
-            // if addr == 2 { self.clear_ppustatus() } hmm....
-            if addr == 4 { 
-                self.get_oam_data()
-            } else {
-                self.registers[addr]
-            } 
-        } else {
-            self.oam_dma
-        }
+        // "bus" must be assigned by now.
+        self.bus.unwrap().read(addr)
     }
 
-    pub fn write(&mut self, addr: u16, val: u8) {
-        // TODO
-        // OAMADDR is set to 0 during each of ticks 257–320 (the sprite tile loading interval) of the pre-render and visible scanlines. 
-        // This also means that at the end of a normal complete rendered frame, OAMADDR will always have returned to 0.
-        if addr < 8 {
-            let addr = (addr & 0x7) as usize;
-            self.registers[addr] = val;
-        } else {
-            self.oam_dma = val;
-        }
-    }
-    
-    fn get_oam_data(&self) -> u8 {
+    fn get_oam_data(&self, oam_addr: usize) -> u8 {
         // reads during vertical or forced blanking return the value from OAM at that address but do not increment.
-        let oam_addr = self.registers[3] as usize;
         self.oam[oam_addr]
     }
     
-    pub fn set_oam_data(&mut self, val: u8) {
-        // OBS: Because changes to OAM should normally be made only during vblank, writing through OAMDATA is only effective for partial updates (it is too slow), and as described above, partial writes cause corruption. 
-        // Most games will use the DMA feature through OAMDMA instead.
-        let oam_addr = self.registers[3] as usize;
+    pub fn set_oam_data(&mut self, oam_addr: usize, val: u8) {
         self.oam[oam_addr] = val;
-        self.registers[3] += 1; // hopefully no overflow...
     }
 
-    pub fn reset_oam_addr(&mut self) {
-        self.registers[3] = 0;
-    }
-
-    // $2005(PPUSCROLL) and $2006(PPUADDR) share a common write toggle w, so that the first write has one behaviour, and the second write has another. 
-    // After the second write, the toggle is reset to the first write behaviour.
-    // https://www.nesdev.org/wiki/PPU_scrolling
-    fn write_twice(&mut self, reg_n: usize, val: u8) {
-        let register = self.registers[reg_n];
+    pub fn set_address(&mut self, reg: u8, val: u16) -> u8 {
         if self.w_toggle {
-            if reg_n == 5 {
-                let abcde = (val & 0xF8) as u16;
-                let fgh = (val & 0x07) as u16;
-                let t = self.temp_vram_addr & 0xC1F;
-                // maybe 12 wrong?
-                self.temp_vram_addr = t | abcde << 2 | fgh << 12;
-            }
-            if reg_n == 6 {
-                let t = self.temp_vram_addr & 0x7F00;
-                self.temp_vram_addr = t | val as u16;
-                self.vram_addr = self.temp_vram_addr;
-            }
-            self.registers[reg_n] = (register & 0xF0) | (val & 0x0F);
+            self.temp_vram_addr = self.temp_vram_addr & 0x7F00 | val;
+            self.vram_addr = self.temp_vram_addr;
             self.w_toggle = false;
+            (reg & 0xF0) | (val as u8) & 0x0F
         } else {
-            if reg_n == 5 {
-                let c_x_scroll = (val & 0xF8) >> 3;
-                self.temp_vram_addr = (self.temp_vram_addr & 0xFFE0) | c_x_scroll as u16;
-                // The low 3 bits of X sent to $2005 (first write) control the fine pixel offset within the 8x8 tile.
-                // The low 3 bits goes into the separate x register, which just selects one of 8 pixels coming out of a set of shift registers. 
-                // This fine X value does not change during rendering; the only thing that changes it is a $2005 first write.
-                self.x_scroll = val & 3; 
-            }
-            if reg_n == 6 {
-                let cdefgh = ((val & 0x3F) as u16) << 8;
-                let t = self.temp_vram_addr & 0xFF; // not 0x40FF because bit Z(msb) is cleared.
-                self.temp_vram_addr = t | cdefgh;
-            }
-            self.registers[reg_n] = (register & 0x0F) | (val << 4);
+            self.temp_vram_addr = self.temp_vram_addr & 0xFF | (val & 0x3F) << 8;
             self.w_toggle = true;
+            (reg & 0x0F) | (val as u8) << 4
         }
-    } 
+    }
+
+    pub fn set_scroll(&mut self, reg: u8, val: u16) -> u8 {
+        if self.w_toggle {
+            self.temp_vram_addr = self.temp_vram_addr & 0xC1F | (val & 0xF8) << 2 | (val & 0x07) << 12;
+            self.w_toggle = true;
+            (reg & 0xF0) | (val as u8) & 0x0F
+        } else {
+            self.temp_vram_addr = (self.temp_vram_addr & 0xFFE0) | (val & 0xF8) >> 3;
+            self.x_scroll = (val & 3) as u8;
+            self.w_toggle = true;
+            (reg & 0x0F) | (val as u8) << 4
+        }
+    }
 
     // Tile increments
     fn inc_v_h(&mut self) {
@@ -455,20 +405,17 @@ impl PPU {
         }
     }
 
-    fn set_controller(&mut self, val: u8) {
-        // TODO: PPU control register (PPUCTRL)
-        self.registers[0] = val;
-       // check if "<< 8" is right later.
-        self.temp_vram_addr = (self.temp_vram_addr & 0x73FF) | (((val & 0x3) as u16) << 8);
+    pub fn set_controller(&mut self, val: u8) {
+       // TODO: PPU control register (PPUCTRL)
+        self.temp_vram_addr = (self.temp_vram_addr & 0x73FF) | (((val & 0x3) as u16) << 8); // check "<< 8" later.
         if (val & 0x10) == 0x10 { self.bg_section = Right; } else { self.bg_section = Left; }
         if (val & 8) == 8 { self.sprt_section = Right; } else { self.sprt_section = Left; }
         if (val & 0x20) == 0x20 { self.sprt_size = 16; } else { self.sprt_size = 8; }
     }
 
-    fn set_mask(&mut self, val: u8) {
+    pub fn set_mask(&mut self, val: u8) {
         // Sprite 0 hit does not trigger in any area where the background or sprites are hidden. <-
         // Disabling rendering  =  clear both bits 3 and 4
-        self.registers[1] = val;
         // Each clock cycle = 1 pixel
         // Show background in leftmost 8 pixels of screen
         if val & 0x2 == 0x2 { self.hide_bg = false; } else { self.hide_bg = true; }
