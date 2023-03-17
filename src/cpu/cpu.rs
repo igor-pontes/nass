@@ -1,5 +1,3 @@
-use std::thread::LocalKey;
-
 use super::{
     bus::BUS,
     instructions::{
@@ -37,20 +35,20 @@ pub enum Interrupt {
     NULL
 }
 
-pub struct CPU<'a> {
+pub struct CPU {
     a: u8, // Accumulator (general purpose?)
     x: u8, // general purpose register x?
     y: u8, // general purpose register y?
     pub pc: u16, // Program counter
     s: u8, // Stack pointer (It indexes into a 256-byte stack at $0100-$01FF.)
     p: u8, // Status Register
-    bus: BUS<'a>,
+    bus: BUS,
     pub cycle: usize,
     i: Interrupt,
     skip_cycles: u32,
 }
 
-impl<'a> CPU<'a> {
+impl CPU {
 
     // https://en.wikibooks.org/wiki/NES_Programming/Initializing_the_NES
     pub fn new(bus: BUS) -> CPU {
@@ -108,10 +106,10 @@ impl<'a> CPU<'a> {
         }
 
         // PPU
-        for _ in 0..3 {
-            let i = self.bus.ppu.step();
-            self.interrupt(i);
-        }
+        //for _ in 0..3 {
+        //    let i = self.bus.ppu.step();
+        //    self.interrupt(i);
+        //}
     }
 
     fn set_interrupt(&mut self, i: Interrupt) {
@@ -217,19 +215,21 @@ impl<'a> CPU<'a> {
                 Ok(inst) => inst,
                 _ => return false
             };
-            let peek = |a| self.bus.read(a) as u16 ;
+            let mut peek = |a| self.bus.read(a) as u16 ;
 
             match ADDR_1[addr_mode as usize]  {
                 IndirectX => {
                     let addr = peek(self.pc) + self.x as u16;
                     // wrapping with 0xFF because sum can be more than 0xFF
-                    value = peek(peek(addr & 0xFF) + peek((addr + 1) & 0xFF) * 0x100);
+                    value = peek(addr & 0xFF) + peek((addr + 1) & 0xFF) * 0x100;
+                    value = peek(value);
                     self.pc += 1;
                 },
                 Zeropage => {
                     // Data from the zero page (location on ram $0000-$00FF)
                     // https://www.nesdev.org/wiki/Sample_RAM_map 
-                    value = peek(peek(self.pc)); // dont need to wrap with "0xFF" (no sum)
+                    value = peek(self.pc);
+                    value = peek(value); // dont need to wrap with "0xFF" (no sum)
                     self.pc += 1;
                 },
                 Immediate => {
@@ -242,7 +242,8 @@ impl<'a> CPU<'a> {
                 },
                 IndirectY => {
                     let addr = peek(self.pc) as u16;
-                    value = peek(peek(addr) + peek((addr + 1) & 0xFF) * 0x100 + self.y as u16);
+                    value = peek(addr) + peek((addr + 1) & 0xFF) * 0x100 + self.y as u16;
+                    value = peek(value);
                     self.pc += 1;
                 },
                 ZeropageX => {
@@ -448,13 +449,13 @@ impl<'a> CPU<'a> {
                     self.set_zn(self.x);
                 },
                 DEC => {
-                    let peek = |a| { self.bus.read(a) as u16 };
+                    let mut peek = |a| { self.bus.read(a) as u16 };
                     let operand = ((peek(value) | 0x8000) - 1) as u8;
                     self.set_zn(operand);
                     self.bus.write(value, operand);
                 },
                 INC => {
-                    let peek = |a| { self.bus.read(a) as u16 };
+                    let mut peek = |a| { self.bus.read(a) as u16 };
                     let operand = (peek(value) + 1) as u8;
                     self.set_zn(operand);
                     self.bus.write(value, operand);
@@ -649,7 +650,7 @@ impl<'a> CPU<'a> {
         v
     }
 
-    fn read_address(&self, addr: u16) -> u16 {
+    fn read_address(&mut self, addr: u16) -> u16 {
         (self.bus.read(addr + 1) as u16) * 0x100 + self.bus.read(addr) as u16
     }
 

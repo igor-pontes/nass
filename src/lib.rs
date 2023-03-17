@@ -28,23 +28,25 @@ extern {
 #[wasm_bindgen]
 pub fn disassemble(file: String) {
 
+    // https://badboi.dev/rust/2020/07/17/cell-refcell.html
+    // Rust's borrow rules:
+    // You can have one mutable reference. OR (exclusive; Either one or another, not both.)
+    // You can have multiple immutable references.
+
     let mapper = match Cartridge::disassemble(file) {
         Ok(m) => m,
         Err(str) => return log(&str)
     };
+    let cpu = CPU::new(BUS::new(mapper));
+    //cpu.reset();
 
-    let mut cpu = CPU::new(BUS::new(mapper));
-    cpu.reset();
-    
-    //log(&format!("{:?}", cpu.pc));
-
-    loop {
-        while cpu.cycle < CYCLES_PER_FRAME {
-            cpu.step();
-            cpu.cycle += 1;
-        }
-        break;
-    }
+    //loop {
+    //    while cpu.cycle < CYCLES_PER_FRAME {
+    //        cpu.step();
+    //        cpu.cycle += 1;
+    //    }
+    //    break;
+    //}
     
     alert("end");
 }

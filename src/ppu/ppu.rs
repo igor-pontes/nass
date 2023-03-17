@@ -2,7 +2,9 @@
 // OAM can be viewed as an array with 64 entries. 
 // Each entry has 4 bytes: the sprite Y coordinate, the sprite tile number, the sprite attribute, and the sprite X coordinate. 
 
-use crate::cpu::BUS;
+use crate::{cpu::BUS, mapper::Mapper};
+
+type _Mapper = Box<dyn Mapper>;
 
 use super::super::cpu::Interrupt;
 use Section::*;
@@ -34,7 +36,7 @@ const OAM_SIZE: usize = 0x100;
 // The first write to $2005 specifies the X scroll, in pixels.
 // The second write to $2005 specifies the Y scroll, in pixels.
 
-pub struct PPU<'a> {
+pub struct PPU {
     even_frame: bool,
     show_background: bool,
     show_sprites: bool,
@@ -51,13 +53,13 @@ pub struct PPU<'a> {
     hide_sprt: bool,
     x_scroll: u8, // Only first 3 bits used. (https://www.nesdev.org/wiki/PPU_scrolling)
     oam: [u8; OAM_SIZE],
-    secondary_oam: [u8; 0x20], // 8 * 4 = 32
+    secondary_oam: [u8; 0x20], // 8 * 4 = 32 (do we need this buffer?)
     line: usize,
     cycle: usize,
     oam_dma: u8,
     vram: [u8; PPU_RAM_SIZE],
     frame: [[u8; 0x100]; 0xF0],
-    bus: Option<&'a BUS<'a>>
+    //bus: Option<&'a BUS<'a>>
 }
 
 enum Section {
@@ -75,8 +77,9 @@ enum Section {
 
 // impl<'a> introduces a new lifetime parameter for the whole impl block. 
 // It is then used in the type: impl<'a> Type<'a> { .. }
-impl<'a> PPU<'a> {
-    pub fn new() -> PPU<'a> {
+impl PPU {
+    //pub fn new(bus: &'a BUS<'a>) -> PPU<'a> {
+    pub fn new() -> PPU {
         PPU {
             even_frame: true,
             show_background: false,
@@ -99,12 +102,9 @@ impl<'a> PPU<'a> {
             hide_bg: false,
             hide_sprt: false,
             frame: [[0; 0x100]; 0xF0],
-            bus: None,
-            going_across: true
+            going_across: true,
         }
     }
-
-    pub fn set_bus(&mut self, b: &'a BUS) { self.bus = Some(b); }
 
     // Outside of rendering, reads from or writes to $2007 will add either 1 or 32 to v depending on the VRAM increment bit set via $2000
     pub fn step(&mut self) -> Interrupt {
@@ -288,8 +288,7 @@ impl<'a> PPU<'a> {
     }
 
     pub fn read(&self, addr: u16) -> u8 {
-        // "bus" must be assigned by now.
-        self.bus.unwrap().read(addr)
+        unimplemented!()
     }
 
     fn get_oam_data(&self, oam_addr: usize) -> u8 {
@@ -365,7 +364,10 @@ impl<'a> PPU<'a> {
     // Outside of rendering, reads from or writes to $2007 will add either 1 or 32 to v depending on the VRAM increment bit set via $2000. 
     // During rendering (on the pre-render line and the visible lines 0-239, provided either background or sprite rendering is enabled), 
     // it will update v in an odd way, triggering a coarse X increment and a Y increment simultaneously (with normal wrapping behavior)
-    
+    pub fn set_status(&mut self) {
+        self.v_blank = false;
+
+    }
 
     pub fn set_controller(&mut self, val: u8) {
 
