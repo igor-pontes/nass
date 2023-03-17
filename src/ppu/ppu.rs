@@ -2,15 +2,17 @@
 // OAM can be viewed as an array with 64 entries. 
 // Each entry has 4 bytes: the sprite Y coordinate, the sprite tile number, the sprite attribute, and the sprite X coordinate. 
 
-use crate::{cpu::BUS, mapper::Mapper};
+use core::cell::RefCell;
+use crate::{cpu::BUSPPU, mapper::Mapper};
 
-type _Mapper = Box<dyn Mapper>;
 
 use super::super::cpu::Interrupt;
 use Section::*;
 
-const PPU_RAM_SIZE: usize = 0x4000;
+const PPU_RAM_SIZE: usize = 0x1000;
 const OAM_SIZE: usize = 0x100;
+
+type _Mapper = RefCell<Box<dyn Mapper>>;
 
 // Pattern Tables:
 // Each tile in the pattern table is 16 bytes, made of two planes. 
@@ -36,7 +38,7 @@ const OAM_SIZE: usize = 0x100;
 // The first write to $2005 specifies the X scroll, in pixels.
 // The second write to $2005 specifies the Y scroll, in pixels.
 
-pub struct PPU {
+pub struct PPU<'a> {
     even_frame: bool,
     show_background: bool,
     show_sprites: bool,
@@ -53,13 +55,12 @@ pub struct PPU {
     hide_sprt: bool,
     x_scroll: u8, // Only first 3 bits used. (https://www.nesdev.org/wiki/PPU_scrolling)
     oam: [u8; OAM_SIZE],
-    secondary_oam: [u8; 0x20], // 8 * 4 = 32 (do we need this buffer?)
+    secondary_oam: [u8; 0x20], // 8 * 4 = 32 (Need this buffer?)
     line: usize,
     cycle: usize,
     oam_dma: u8,
-    vram: [u8; PPU_RAM_SIZE],
     frame: [[u8; 0x100]; 0xF0],
-    //bus: Option<&'a BUS<'a>>
+    bus: BUSPPU<'a>
 }
 
 enum Section {
@@ -77,9 +78,9 @@ enum Section {
 
 // impl<'a> introduces a new lifetime parameter for the whole impl block. 
 // It is then used in the type: impl<'a> Type<'a> { .. }
-impl PPU {
+impl<'a> PPU<'a> {
     //pub fn new(bus: &'a BUS<'a>) -> PPU<'a> {
-    pub fn new() -> PPU {
+    pub fn new(mapper: &_Mapper) -> PPU {
         PPU {
             even_frame: true,
             show_background: false,
@@ -92,7 +93,6 @@ impl PPU {
             oam_dma: 0, // needed? maybe not. 
             oam: [0; OAM_SIZE],
             secondary_oam: [0; 0x20],
-            vram: [0; PPU_RAM_SIZE],
             vram_addr: 0,
             temp_vram_addr: 0,
             bg_section: Left,
@@ -103,6 +103,7 @@ impl PPU {
             hide_sprt: false,
             frame: [[0; 0x100]; 0xF0],
             going_across: true,
+            bus: BUSPPU::new(&mapper)
         }
     }
 
@@ -288,7 +289,7 @@ impl PPU {
     }
 
     pub fn read(&self, addr: u16) -> u8 {
-        unimplemented!()
+        self.bus.read(addr)
     }
 
     fn get_oam_data(&self, oam_addr: usize) -> u8 {

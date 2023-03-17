@@ -35,20 +35,20 @@ pub enum Interrupt {
     NULL
 }
 
-pub struct CPU {
+pub struct CPU<'a> {
     a: u8, // Accumulator (general purpose?)
     x: u8, // general purpose register x?
     y: u8, // general purpose register y?
     pub pc: u16, // Program counter
     s: u8, // Stack pointer (It indexes into a 256-byte stack at $0100-$01FF.)
     p: u8, // Status Register
-    bus: BUS,
+    bus: BUS<'a>,
     pub cycle: usize,
     i: Interrupt,
     skip_cycles: u32,
 }
 
-impl CPU {
+impl<'a> CPU<'a> {
 
     // https://en.wikibooks.org/wiki/NES_Programming/Initializing_the_NES
     pub fn new(bus: BUS) -> CPU {

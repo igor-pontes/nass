@@ -31,27 +31,29 @@
     $FFFE–$FFFF = IRQ/BRK vector
 */
 
+use std::cell::RefCell;
+
 use crate::mapper::Mapper;
 use super::super::ppu::*;
 
 const RAM_SIZE: usize = 0x800;
 //const MEMORY_SIZE: usize = 0x10000; // 0x10000 = 0xFFFF + 1
 
-type _Mapper = Box<dyn Mapper>;
+type _Mapper = RefCell<Box<dyn Mapper>>;
 
-pub struct BUS {
+pub struct BUS<'a> {
     ram: [u8; RAM_SIZE],
-    mapper: _Mapper,
-    ppu: PPU,
+    mapper: &'a _Mapper,
+    ppu: PPU<'a>,
     ppu_registers: [u8; 8],
 }
 
-impl BUS {
-    pub fn new(mapper: _Mapper) -> BUS {
+impl<'a> BUS<'a> {
+    pub fn new(mapper: &'a _Mapper) -> BUS<'a> {
         BUS {
             ram: [0; RAM_SIZE],
             mapper,
-            ppu: PPU::new(),
+            ppu: PPU::new(&mapper),
             ppu_registers: [0; 8],
         }
     }
@@ -79,7 +81,7 @@ impl BUS {
         } else if addr < 0x6000 {
             ()
         } else {
-            self.mapper.write_prg(addr, val);
+            self.mapper.borrow_mut().write_prg(addr, val);
         }
     }
 
@@ -92,10 +94,12 @@ impl BUS {
         } else if addr < 0x4018 {
             if addr == 0x4016 || addr == 0x4017 {
                 0 // Inputs
-            } else { 0 }
+            } else { 
+                0 
+            }
         } else {
             //  Battery Backed Save or Work RAM not implemented.
-            self.mapper.read_prg(addr)
+            self.mapper.borrow_mut().read_prg(addr)
         }
     }
 

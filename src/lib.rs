@@ -1,3 +1,5 @@
+use core::cell::RefCell;
+
 mod utils;
 mod ppu;
 mod cpu;
@@ -33,11 +35,11 @@ pub fn disassemble(file: String) {
     // You can have one mutable reference. OR (exclusive; Either one or another, not both.)
     // You can have multiple immutable references.
 
-    let mapper = match Cartridge::disassemble(file) {
-        Ok(m) => m,
+    let mut mapper = match Cartridge::disassemble(file) {
+        Ok(m) => RefCell::new(m),
         Err(str) => return log(&str)
     };
-    let cpu = CPU::new(BUS::new(mapper));
+    let cpu = CPU::new(BUS::new(&mapper));
     //cpu.reset();
 
     //loop {
