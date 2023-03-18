@@ -1,12 +1,15 @@
+use crate::cartridge::Mirroring;
+
 use super::{super::Cartridge, Mapper};
 
 pub struct NROM {
+    pub mirroring: Mirroring,
     cartridge: Cartridge
 }
 
 impl NROM {
-    pub fn new(cartridge: Cartridge) -> Self {
-        NROM { cartridge }
+    pub fn new(cartridge: Cartridge, mirroring: Mirroring) -> Self {
+        NROM { mirroring, cartridge }
     }
 }
 
@@ -33,6 +36,10 @@ impl Mapper for NROM {
 
     fn write_chr(&mut self, addr: u16, val: u8) {
         self.cartridge.write_chr_ram(addr, val)
+    }
+
+    fn get_mirroring(&self) -> Mirroring {
+        self.mirroring
     }
 
 }

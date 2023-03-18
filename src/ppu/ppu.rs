@@ -80,7 +80,7 @@ enum Section {
 // It is then used in the type: impl<'a> Type<'a> { .. }
 impl<'a> PPU<'a> {
     //pub fn new(bus: &'a BUS<'a>) -> PPU<'a> {
-    pub fn new(mapper: &_Mapper) -> PPU {
+    pub fn new(bus: BUSPPU) -> PPU {
         PPU {
             even_frame: true,
             show_background: false,
@@ -103,7 +103,7 @@ impl<'a> PPU<'a> {
             hide_sprt: false,
             frame: [[0; 0x100]; 0xF0],
             going_across: true,
-            bus: BUSPPU::new(&mapper)
+            bus
         }
     }
 

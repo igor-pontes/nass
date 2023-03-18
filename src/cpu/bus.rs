@@ -49,12 +49,12 @@ pub struct BUS<'a> {
 }
 
 impl<'a> BUS<'a> {
-    pub fn new(mapper: &'a _Mapper) -> BUS<'a> {
+    pub fn new(mapper: &'a _Mapper, ppu: PPU<'a>) -> BUS<'a> {
         BUS {
             ram: [0; RAM_SIZE],
             mapper,
-            ppu: PPU::new(&mapper),
             ppu_registers: [0; 8],
+            ppu,
         }
     }
 

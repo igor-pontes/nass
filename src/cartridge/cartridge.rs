@@ -14,7 +14,6 @@ pub enum Mirroring {
 
 #[derive(Debug)]
 pub struct Cartridge {
-    mirror: Mirroring, // None = Ignore mirroring
     prg_rom: Vec<u8>,
     chr_rom: Option<Vec<u8>>,
     prg_ram: Vec<u8>,
@@ -22,9 +21,8 @@ pub struct Cartridge {
 }
 
 impl Cartridge {
-    fn new(ignore_m: bool, m: Mirroring, prg_rom: Vec<u8>, chr_rom: Option<Vec<u8>>) -> Cartridge {
+    fn new(prg_rom: Vec<u8>, chr_rom: Option<Vec<u8>>) -> Cartridge {
         Cartridge {
-            mirror: if ignore_m { FourScreen } else { m },
             prg_rom,
             chr_rom,
             prg_ram: Vec::new(),
@@ -62,11 +60,16 @@ impl Cartridge {
                 chr_rom = Some(bytes[offset..offset + chr_rom_banks * 0x2000].to_vec());
             }
             
-            let mirroring = if bytes[6] & 0x1 == 0 { Horizontal } else { Vertical };
 
-            let c = Cartridge::new(bytes[6] & 0x8 == 1, mirroring, prg_rom, chr_rom);
+            let c = Cartridge::new(prg_rom, chr_rom);
 
-            mapper::create_mapper((bytes[7] & 0xF0) | (bytes[6] & 0xF0) >> 4, c, prg_rom_banks, chr_rom_banks)
+            let m = if bytes[6] & 8 == 8 { 
+                FourScreen 
+            } else { 
+                if bytes[6] & 0x1 == 0 { Horizontal } else { Vertical }
+            };
+
+            mapper::create_mapper((bytes[7] & 0xF0) | (bytes[6] & 0xF0) >> 4, m, c, prg_rom_banks, chr_rom_banks)
 
         } else {
             Err("Only NES files supported.")
@@ -98,10 +101,6 @@ impl Cartridge {
 
     pub fn write_chr_ram(&mut self, addr: u16, val: u8) {
         self.chr_ram[addr as usize] = val
-    }
-
-    pub fn get_mirroring(&self) -> Mirroring {
-        self.mirror
     }
 
 }

@@ -7,7 +7,7 @@ mod mapper;
 mod scene;
 mod cartridge;
 use { 
-    crate::{ cartridge::*, cpu::* }, 
+    crate::{ cartridge::*, cpu::*, ppu::* }, 
     wasm_bindgen::prelude::*, 
     //js_sys
 };
@@ -39,7 +39,11 @@ pub fn disassemble(file: String) {
         Ok(m) => RefCell::new(m),
         Err(str) => return log(&str)
     };
-    let cpu = CPU::new(BUS::new(&mapper));
+
+    let bus_ppu = BUSPPU::new(&mapper);
+    let ppu = PPU::new(bus_ppu);
+    let bus = BUS::new(&mapper, ppu);
+    let cpu = CPU::new(bus);
     //cpu.reset();
 
     //loop {
