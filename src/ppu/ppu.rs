@@ -9,7 +9,6 @@ use {
     super::color::*,
 };
 
-const PPU_RAM_SIZE: usize = 0x1000;
 const OAM_SIZE: usize = 0x100;
 
 // Pattern Tables:
@@ -42,6 +41,7 @@ pub struct PPU<'a> {
     show_sprites: bool,
     v_blank: bool,
     sprite_zero: bool,
+    overflow: bool,
     going_across: bool,
     sprt_size: usize,
     vram_addr: u16,
@@ -52,12 +52,12 @@ pub struct PPU<'a> {
     hide_bg: bool,
     hide_sprt: bool,
     x_scroll: u8, // Only first 3 bits used. (https://www.nesdev.org/wiki/PPU_scrolling)
-    oam: [u8; OAM_SIZE],
+    oam: [u8; OAM_SIZE], // 64
     secondary_oam: [u8; 0x20], // 8 * 4 = 32 (Need this buffer?)
     line: usize,
     cycle: usize,
     oam_dma: u8,
-    frame: [[Option<Color>; 0x100]; 0xF0],
+    frame: [[Color; 0x100]; 0xF0],
     bus: BUSPPU<'a>
 }
 
@@ -84,11 +84,12 @@ impl<'a> PPU<'a> {
             show_background: false,
             show_sprites: false,
             v_blank: false,
+            overflow: false,
             sprite_zero: false,
             w_toggle: false,
             cycle: 0,
             line: 261,
-            oam_dma: 0, // needed? maybe not. 
+            oam_dma: 0,
             oam: [0; OAM_SIZE],
             secondary_oam: [0; 0x20],
             vram_addr: 0,
@@ -99,7 +100,7 @@ impl<'a> PPU<'a> {
             x_scroll: 0,
             hide_bg: false,
             hide_sprt: false,
-            frame: [[None; 0x100]; 0xF0],
+            frame: [[Color::new(); 0x100]; 0xF0],
             going_across: true,
             bus
         }
@@ -120,7 +121,7 @@ impl<'a> PPU<'a> {
             return i
         }
         // Render & Pre-render
-        if self.cycle > 0 && self.cycle <= 256 { // 256?
+        if self.cycle > 0 && self.cycle < 256 { // 256?
             // Visible dots
             // While the system palette contains a total of 64 colors, a single frame has its own palette that is a subset of the system palette. 
             // Let’s call that set of colors the frame palette
@@ -128,7 +129,7 @@ impl<'a> PPU<'a> {
             if self.cycle == 1 && self.line == 261 {
                 self.v_blank = false;
                 self.sprite_zero = false;
-                // TODO: clear overflow 
+                self.overflow = false;
             }
             let (mut bg_color, mut sprt_color, mut bg_opaque, mut sprt_opaque, mut sprt_foreground) = (0, 0, false, true, true);
             let (x, y) = (self.cycle - 1, self.line);
@@ -262,14 +263,22 @@ impl<'a> PPU<'a> {
                 if sprt_foreground { palette_addr = sprt_color; }
             }
 
-            // store color
-            // store pixel color on frame buffer
-            self.frame[x][y] = Some(Color::decode(COLORS[self.read(palette_addr as u16) as usize]));
+            self.frame[x][y].decode(COLORS[self.read(palette_addr as u16) as usize]);
         }
+
+        if self.cycle == 256 && self.show_background {
+            self.inc_v_v();
+        }
+
+        if self.cycle == 257 && self.show_background && self.show_sprites {
+            self.vram_addr &= !0x41f;
+            self.vram_addr |= self.temp_vram_addr & 0x41f;
+        }
+
         // vert(v) = vert(t)each tick (Pre-render only)
         if self.cycle >= 280 && self.cycle <= 304 && self.line == 261 {
             // I dont think we need to assign this every tick.
-            self.vram_addr = (self.vram_addr & 0x41F) | self.temp_vram_addr;
+            //self.vram_addr = (self.vram_addr & 0x41F) | self.temp_vram_addr;
         }
         // Pre-render only
         if self.cycle == 339 && self.line == 261 && !self.even_frame {
@@ -278,9 +287,10 @@ impl<'a> PPU<'a> {
             self.cycle = 0;
             self.line = 0;
         }
+
         if self.cycle == 340 {
             self.cycle = 0;
-            self.line += 1;
+            if self.line == 261 { self.line = 0; } else { self.line += 1; }
         }
         self.cycle += 1;
         return i
@@ -365,7 +375,6 @@ impl<'a> PPU<'a> {
     // it will update v in an odd way, triggering a coarse X increment and a Y increment simultaneously (with normal wrapping behavior)
     pub fn set_status(&mut self) {
         self.v_blank = false;
-
     }
 
     pub fn set_controller(&mut self, val: u8) {

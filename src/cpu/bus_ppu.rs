@@ -19,7 +19,7 @@ pub struct BUSPPU<'a> {
 }
 
 impl<'a> BUSPPU<'a> {
-    pub fn new(mapper: &_Mapper) -> BUSPPU {
+    pub fn new(mapper: &'a _Mapper) -> BUSPPU {
         let mut b = BUSPPU {
             mapper,
             vram: [0; VRAM_SIZE],

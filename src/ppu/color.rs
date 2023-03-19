@@ -20,14 +20,16 @@ pub struct Color {
 }
 
 impl Color {
-    pub fn decode(color: u32) -> Self {
-        Color {
-            red: ((color >> 24) & 0xFF) as u8,
-            green: ((color >> 16) & 0xFF) as u8,
-            blue: ((color >> 8) & 0xFF) as u8,
-            alpha: (color & 0xFF) as u8,
-        }
+    pub fn new() -> Color {
+        Color { red: 0, green: 0, blue: 0, alpha: 0 }
     }
+    pub fn decode(&mut self, color: u32) {
+        self.red = ((color >> 24) & 0xFF) as u8;
+        self.green = ((color >> 16) & 0xFF) as u8;
+        self.blue = ((color >> 8) & 0xFF) as u8;
+        self.alpha = (color & 0xFF) as u8;
+    }
+
     pub fn to_hex(&self) -> String {
         // convert values to hexadecimal strings
         String::from(format!("#{}{}{}{}",
