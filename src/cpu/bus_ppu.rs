@@ -10,7 +10,7 @@ pub struct BUSPPU<'a> {
     mapper: &'a _Mapper,
     // Each byte in the nametable controls one 8x8 pixel character cell, and each nametable has 30 rows of 32 tiles each.
     vram: [u8; VRAM_SIZE],
-    palette: [u8; PALETTE_SIZE], // Enum of colors maybe?
+    palette: [u8; PALETTE_SIZE],
     nametable0: usize,
     nametable1: usize,
     nametable2: usize,
@@ -48,11 +48,10 @@ impl<'a> BUSPPU<'a> {
                 self.vram[self.nametable3 + index] = val;
             }
         } else {
-            let addr = (addr & 0x1F) as usize;
-            self.palette[addr] = val;
+            self.palette[self.get_palette_addr(addr & 0x1F)] = val;
         }
     }
-
+        
     pub fn read(&self, addr: u16) -> u8 { 
         if addr < 0x2000 {
             self.mapper.borrow_mut().read_chr(addr)
@@ -69,9 +68,14 @@ impl<'a> BUSPPU<'a> {
                 self.vram[self.nametable3 + index]
             }
         } else {
-            let addr = (addr & 0x1F) as usize;
-            self.palette[addr]
+            self.palette[self.get_palette_addr(addr & 0x1F)]
         }
+    }
+
+    fn get_palette_addr(&self, addr: u16) -> usize {
+        // https://www.nesdev.org/wiki/PPU_palettes#The_background_palette_hack
+        let addr = addr as usize;
+        if addr >= 0x10 && addr % 4 == 0 { addr & 0xF } else { addr }
     }
 
     fn set_mirroring(&mut self) {

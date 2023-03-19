@@ -35,7 +35,7 @@ pub fn disassemble(file: String) {
     // You can have one mutable reference. OR (exclusive; Either one or another, not both.)
     // You can have multiple immutable references.
 
-    let mut mapper = match Cartridge::disassemble(file) {
+    let mapper = match Cartridge::disassemble(file) {
         Ok(m) => RefCell::new(m),
         Err(str) => return log(&str)
     };
