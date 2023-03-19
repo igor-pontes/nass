@@ -2,17 +2,15 @@
 // OAM can be viewed as an array with 64 entries. 
 // Each entry has 4 bytes: the sprite Y coordinate, the sprite tile number, the sprite attribute, and the sprite X coordinate. 
 
-use core::cell::RefCell;
-use crate::{cpu::BUSPPU, mapper::Mapper};
-
-
-use super::super::cpu::Interrupt;
-use Section::*;
+use {
+    crate::cpu::BUSPPU,
+    super::super::cpu::Interrupt,
+    Section::*,
+    super::color::*,
+};
 
 const PPU_RAM_SIZE: usize = 0x1000;
 const OAM_SIZE: usize = 0x100;
-
-type _Mapper = RefCell<Box<dyn Mapper>>;
 
 // Pattern Tables:
 // Each tile in the pattern table is 16 bytes, made of two planes. 
@@ -59,7 +57,7 @@ pub struct PPU<'a> {
     line: usize,
     cycle: usize,
     oam_dma: u8,
-    frame: [[u8; 0x100]; 0xF0],
+    frame: [[Option<Color>; 0x100]; 0xF0],
     bus: BUSPPU<'a>
 }
 
@@ -101,7 +99,7 @@ impl<'a> PPU<'a> {
             x_scroll: 0,
             hide_bg: false,
             hide_sprt: false,
-            frame: [[0; 0x100]; 0xF0],
+            frame: [[None; 0x100]; 0xF0],
             going_across: true,
             bus
         }
@@ -266,7 +264,7 @@ impl<'a> PPU<'a> {
 
             // store color
             // store pixel color on frame buffer
-            //frame[x][y] = ;
+            self.frame[x][y] = Some(Color::decode(COLORS[self.read(palette_addr as u16) as usize]));
         }
         // vert(v) = vert(t)each tick (Pre-render only)
         if self.cycle >= 280 && self.cycle <= 304 && self.line == 261 {

@@ -59,7 +59,6 @@ impl Cartridge {
                 let offset = 16 + prg_rom_banks * 0x4000;
                 chr_rom = Some(bytes[offset..offset + chr_rom_banks * 0x2000].to_vec());
             }
-            
 
             let c = Cartridge::new(prg_rom, chr_rom);
 

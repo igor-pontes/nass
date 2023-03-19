@@ -6,6 +6,7 @@ type _Mapper = RefCell<Box<dyn Mapper>>;
 const VRAM_SIZE: usize = 0x1000;
 const PALETTE_SIZE: usize = 0x20;
 
+
 pub struct BUSPPU<'a> {
     mapper: &'a _Mapper,
     // Each byte in the nametable controls one 8x8 pixel character cell, and each nametable has 30 rows of 32 tiles each.

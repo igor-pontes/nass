@@ -1,5 +1,4 @@
 use core::cell::RefCell;
-
 mod utils;
 mod ppu;
 mod cpu;
