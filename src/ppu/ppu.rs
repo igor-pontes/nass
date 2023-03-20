@@ -9,8 +9,6 @@ use {
     super::color::*,
 };
 
-const OAM_SIZE: usize = 0x100;
-
 // Pattern Tables:
 // Each tile in the pattern table is 16 bytes, made of two planes. 
 // The first plane controls bit 0 of the color; the second plane controls bit 1.
@@ -52,11 +50,10 @@ pub struct PPU<'a> {
     hide_bg: bool,
     hide_sprt: bool,
     x_scroll: u8, // Only first 3 bits used. (https://www.nesdev.org/wiki/PPU_scrolling)
-    oam: [u8; OAM_SIZE], // 64
-    secondary_oam: [u8; 0x20], // 8 * 4 = 32 (Need this buffer?)
+    oam: [u8; 0x100], // 64 entries (256 / 4)
+    secondary_oam: [usize; 8], // (entries for "oam")
     line: usize,
     cycle: usize,
-    oam_dma: u8,
     frame: [[Color; 0x100]; 0xF0],
     bus: BUSPPU<'a>
 }
@@ -89,9 +86,8 @@ impl<'a> PPU<'a> {
             w_toggle: false,
             cycle: 0,
             line: 261,
-            oam_dma: 0,
-            oam: [0; OAM_SIZE],
-            secondary_oam: [0; 0x20],
+            oam: [0; 0x100],
+            secondary_oam: [0; 8],
             vram_addr: 0,
             temp_vram_addr: 0,
             bg_section: Left,
@@ -111,14 +107,14 @@ impl<'a> PPU<'a> {
         use Interrupt::*;
         // Each dot = 1 pixel
         // Post-render & vblank
-        let mut i = NULL;
+        let mut interrupt = NULL;
         if self.line >= 240 && self.line <= 260 {
             if self.cycle == 1 { 
                 self.v_blank = true;
-                i = NMI;
+                interrupt = NMI;
             }
             self.cycle += 1;
-            return i
+            return interrupt
         }
         // Render & Pre-render
         if self.cycle > 0 && self.cycle < 256 { // 256?
@@ -185,11 +181,11 @@ impl<'a> PPU<'a> {
 
             if self.show_sprites && (!self.hide_sprt || x >= 8) {
                 // scan every sprite from OAM?
-                for i in 0..64 {
+                for i in self.secondary_oam {
+                    if 0 > (x as i32 - self.oam[i * 4 + 3] as i32) || (x as i32 - self.oam[i * 4 + 3] as i32) >= 8 { continue; }
                     // fine_x sprite offset 
                     let sprt_x = self.oam[i * 4 + 3] as usize;
                     // if (x - sprt_x) >= 0, render until next 8x8 tile(each 8 cycle period).
-                    if 0 > (x - sprt_x) || (x - sprt_x) >= 8 { continue; }
 
                     let (sprt_y, sprt_tile, sprt_attr) = (self.oam[i * 4 + 0] as usize, self.oam[i * 4 + 1] as usize, self.oam[i * 4 + 2] as usize);
                     let mut x_shift = (x - sprt_x) % 8;
@@ -275,15 +271,31 @@ impl<'a> PPU<'a> {
             self.vram_addr |= self.temp_vram_addr & 0x41f;
         }
 
-        // vert(v) = vert(t)each tick (Pre-render only)
-        if self.cycle >= 280 && self.cycle <= 304 && self.line == 261 {
-            // I dont think we need to assign this every tick.
-            //self.vram_addr = (self.vram_addr & 0x41F) | self.temp_vram_addr;
+        // During each visible scanline this secondary OAM is first cleared, 
+        // and then a linear search of the entire primary OAM is carried out to find sprites that are within y range for the next scanline 
+        // (the sprite evaluation phase)
+        if self.cycle > 320 && self.cycle <= 337 {
+            self.secondary_oam = [0; 8]; // reset array of entries
+            let mut range = 8;
+            if self.sprt_size == 16 { range = 16; }
+            let mut j = 0;
+            for i in 0..64 {
+                let diff = self.line as i32 - (self.oam[(i * 4) as usize]) as i32;
+                if 0 <= diff && diff < range {
+                    if j >= 8 {
+                        self.overflow = true;
+                        break;
+                    }
+                    self.secondary_oam[j] = i;
+                    j += 1;
+                }
+            }
+            if self.line < 261 { self.line += 1; } else { self.line = 0; }
+            self.cycle = 0;
         }
+        
         // Pre-render only
         if self.cycle == 339 && self.line == 261 && !self.even_frame {
-            // skip to (0,0) if odd frame and on pre-render line        
-            // dont need to set "even_frame" to true.
             self.cycle = 0;
             self.line = 0;
         }
@@ -292,11 +304,12 @@ impl<'a> PPU<'a> {
             self.cycle = 0;
             if self.line == 261 { self.line = 0; } else { self.line += 1; }
         }
+
         self.cycle += 1;
-        return i
+        return interrupt
     }
 
-    pub fn read(&self, addr: u16) -> u8 {
+    fn read(&self, addr: u16) -> u8 {
         self.bus.read(addr)
     }
 
@@ -368,11 +381,7 @@ impl<'a> PPU<'a> {
             self.vram_addr = (self.vram_addr & !0x03E0) | (y << 5); // put coarse Y back into v
         }
     }
-
-    // VRAM increment
-    // Outside of rendering, reads from or writes to $2007 will add either 1 or 32 to v depending on the VRAM increment bit set via $2000. 
-    // During rendering (on the pre-render line and the visible lines 0-239, provided either background or sprite rendering is enabled), 
-    // it will update v in an odd way, triggering a coarse X increment and a Y increment simultaneously (with normal wrapping behavior)
+    
     pub fn set_status(&mut self) {
         self.v_blank = false;
     }
@@ -397,5 +406,4 @@ impl<'a> PPU<'a> {
         if val & 8 == 8 { self.show_background = true; } else { self.show_background = false; }
         if val & 0x10 == 0x10 { self.show_sprites = true; } else { self.show_sprites = false; }
     }
-
 }

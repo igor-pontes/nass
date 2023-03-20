@@ -90,7 +90,8 @@ impl<'a> BUS<'a> {
             self.ram[(addr & 0x7FF) as usize]
         } else if addr < 0x4000 { // Mirrors of $2000–$2007
             let reg = (addr & 7) as usize;
-            self.ppu_registers[reg] // TODO
+            if reg == 2 { self.ppu.set_status(); }
+            self.ppu_registers[reg]
         } else if addr < 0x4018 {
             if addr == 0x4016 || addr == 0x4017 {
                 0 // Inputs
