@@ -1,4 +1,5 @@
 use core::cell::RefCell;
+
 mod utils;
 mod ppu;
 mod cpu;
@@ -6,7 +7,7 @@ mod mapper;
 mod scene;
 mod cartridge;
 use { 
-    crate::{ cartridge::*, cpu::*, ppu::* }, 
+    crate::{ cartridge::*, cpu::*, ppu::*, scene::* }, 
     wasm_bindgen::prelude::*, 
     //js_sys
 };
@@ -25,9 +26,8 @@ extern {
     fn log(s: &str);
 }
 
-
 #[wasm_bindgen]
-pub fn disassemble(file: String) {
+pub fn disassemble(file: String, scene: Scene) {
 
     // https://badboi.dev/rust/2020/07/17/cell-refcell.html
     // Rust's borrow rules:
@@ -40,18 +40,18 @@ pub fn disassemble(file: String) {
     };
 
     let bus_ppu = BUSPPU::new(&mapper);
-    let ppu = PPU::new(bus_ppu);
+    let ppu = PPU::new(bus_ppu, scene);
     let bus = BUS::new(&mapper, ppu);
-    let cpu = CPU::new(bus);
-    //cpu.reset();
+    let mut cpu = CPU::new(bus);
+    cpu.reset();
 
-    //loop {
-    //    while cpu.cycle < CYCLES_PER_FRAME {
-    //        cpu.step();
-    //        cpu.cycle += 1;
-    //    }
-    //    break;
-    //}
+    loop {
+        while cpu.cycle < 121 {
+            cpu.step();
+            cpu.cycle += 1;
+        }
+        break;
+    }
     
-    alert("end");
+    log("end");
 }

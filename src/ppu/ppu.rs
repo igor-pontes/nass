@@ -7,7 +7,17 @@ use {
     super::super::cpu::Interrupt,
     Section::*,
     super::color::*,
+    crate::scene::Scene,
 };
+
+// Debug
+use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen]
+extern {
+    #[wasm_bindgen(js_namespace = console)]
+    fn log(s: &str);
+}
 
 // Pattern Tables:
 // Each tile in the pattern table is 16 bytes, made of two planes. 
@@ -55,7 +65,8 @@ pub struct PPU<'a> {
     line: usize,
     cycle: usize,
     frame: [[Color; 0x100]; 0xF0],
-    bus: BUSPPU<'a>
+    scene: Scene,
+    bus: BUSPPU<'a>,
 }
 
 enum Section {
@@ -75,7 +86,7 @@ enum Section {
 // It is then used in the type: impl<'a> Type<'a> { .. }
 impl<'a> PPU<'a> {
     //pub fn new(bus: &'a BUS<'a>) -> PPU<'a> {
-    pub fn new(bus: BUSPPU) -> PPU {
+    pub fn new(bus: BUSPPU, scene: Scene) -> PPU {
         PPU {
             even_frame: true,
             show_background: false,
@@ -84,7 +95,7 @@ impl<'a> PPU<'a> {
             overflow: false,
             sprite_zero: false,
             w_toggle: false,
-            cycle: 0,
+            cycle: 1,
             line: 261,
             oam: [0; 0x100],
             secondary_oam: [0; 8],
@@ -98,6 +109,7 @@ impl<'a> PPU<'a> {
             hide_sprt: false,
             frame: [[Color::new(); 0x100]; 0xF0],
             going_across: true,
+            scene,
             bus
         }
     }
@@ -105,31 +117,46 @@ impl<'a> PPU<'a> {
     // Outside of rendering, reads from or writes to $2007 will add either 1 or 32 to v depending on the VRAM increment bit set via $2000
     pub fn step(&mut self) -> Interrupt {
         use Interrupt::*;
+        if self.even_frame { self.even_frame = false; } else { self.even_frame = true; }
         // Each dot = 1 pixel
         // Post-render & vblank
         let mut interrupt = NULL;
+        
         if self.line >= 240 && self.line <= 260 {
-            if self.cycle == 1 { 
+            if self.cycle == 1 && self.line == 240 {
+                for x in 0..256 {
+                    for y in 0..240 {
+                        let value = &self.frame[x as usize][y as usize].to_hex();
+                        self.scene.set_pixel(x, y, value);
+                    }
+                }
+            }
+            if self.cycle == 1 && self.line == 241 { 
                 self.v_blank = true;
                 interrupt = NMI;
+            }
+            if self.cycle == 340 {
+                self.cycle = 0;
+                self.line += 1;
             }
             self.cycle += 1;
             return interrupt
         }
+        
         // Render & Pre-render
-        if self.cycle > 0 && self.cycle < 256 { // 256?
+        if self.cycle == 1 && self.line == 261 {
+            self.v_blank = false;
+            self.sprite_zero = false;
+            self.overflow = false;
+        }
+
+        if self.cycle > 0 && self.cycle < 256 && self.line != 261 { // 256?
             // Visible dots
             // While the system palette contains a total of 64 colors, a single frame has its own palette that is a subset of the system palette. 
             // Let’s call that set of colors the frame palette
-            // Pre-render only
-            if self.cycle == 1 && self.line == 261 {
-                self.v_blank = false;
-                self.sprite_zero = false;
-                self.overflow = false;
-            }
             let (mut bg_color, mut sprt_color, mut bg_opaque, mut sprt_opaque, mut sprt_foreground) = (0, 0, false, true, true);
             let (x, y) = (self.cycle - 1, self.line);
-
+         
             // tiles here
             if self.show_background {
                 let x_fine = (x + (self.x_scroll) as usize) % 8;
@@ -163,22 +190,22 @@ impl<'a> PPU<'a> {
                     // indices for palette, 1 byte represents 1 tile
                     // Each byte controls the palette of a 32×32 pixel or 4×4 tile part of the nametable.
                     // With each tile being 8x8 pixels.
-
+             
                     bg_opaque = if bg_color != 0 { true } else { false };
-
+             
                     // Attr_table: (each tile) 2x2 (each tile = 16x16 pixels) or 4x4 (each tile = 8x8 pixels) => Nametable: (each tile) 8x8
                     let attr_table = self.read(0x23C0 | (v & 0x0C00) | ((v >> 4) & 0x38) | ((v >> 2) & 0x07));
                     // use second bit of each Coarse offset (= every 16 pixels of data, horizontal/vertical)
                     // 1 8x8 tile = 00 => 2 8x8 tile = 01 => 3 9x9 tile = 10 => 4 8x8 tile = 11 => ... (Horizontal)
                     let shift = ((v >> 4) & 4) | v & 2; // e.g. "000" = first quadrant; "010"; second quadrant; ...
-
+             
                     // Palette number from attribute table or OAM (0b0pp00)
                     // select quadrant (16 pixel each) color
                     bg_color |= ((attr_table >> shift) & 3) << 2; // 0b0ppvv
                 }
                 if x_fine == 7 { self.inc_v_h(); } // increment x_fine each 8 cycle
             }
-
+         
             if self.show_sprites && (!self.hide_sprt || x >= 8) {
                 // scan every sprite from OAM?
                 for i in self.secondary_oam {
@@ -186,21 +213,21 @@ impl<'a> PPU<'a> {
                     // fine_x sprite offset 
                     let sprt_x = self.oam[i * 4 + 3] as usize;
                     // if (x - sprt_x) >= 0, render until next 8x8 tile(each 8 cycle period).
-
+             
                     let (sprt_y, sprt_tile, sprt_attr) = (self.oam[i * 4 + 0] as usize, self.oam[i * 4 + 1] as usize, self.oam[i * 4 + 2] as usize);
                     let mut x_shift = (x - sprt_x) % 8;
                     let mut y_offset = (y - sprt_y) % self.sprt_size;
-
+             
                     // https://www.nesdev.org/wiki/PPU_OAM
                     if (sprt_attr & 0x40) == 0 { x_shift ^= 7 } 
                     if (sprt_attr & 0x80) != 0 { y_offset ^= self.sprt_size - 1 }
-
-                    let mut addr = 0;
-                    if self.sprt_size == 8 {
-                        addr = (sprt_tile * 16 + sprt_y) as u16;
+             
+                    //let mut addr = 0;
+                    let addr = if self.sprt_size == 8 {
+                        let addr = (sprt_tile * 16 + sprt_y) as u16;
                         match self.sprt_section {
-                            Left => addr &= 0x0FFF,
-                            Right => addr |= 0x1000
+                            Left => addr & 0x0FFF,
+                            Right => addr | 0x1000
                         }
                     } else {
                         // tile next column = next 8 pixels of the 16 pixel sprite.
@@ -212,10 +239,12 @@ impl<'a> PPU<'a> {
                         |||||||+- Bank ($0000 or $1000) of tiles
                         +++++++-- Tile number of top of sprite (0 to 254; bottom half gets the next tile)
                         */
-                        addr = (tile >> 1) * 32 + y_offset as u16; // 00tttttt000000 (Pattern T. address)
-                        addr = (tile & 1) << 12;
-                    }
-
+                        // addr = (tile >> 1) * 32 + y_offset as u16; // 00tttttt000000 (Pattern T. address)
+                        // addr = (tile & 1) << 12;
+                        let addr = (tile >> 1) * 32 + y_offset as u16; // 00tttttt000000 (Pattern T. address)
+                        addr | (tile & 1) << 12
+                    };
+             
                     // Sprites with lower OAM indices are drawn in front.
                     // (For example, sprite 0 is in front of sprite 1, which is in front of sprite 63.)
                     // Pixel value from tile data (0b000vv)
@@ -230,38 +259,41 @@ impl<'a> PPU<'a> {
                     } else {
                         sprt_opaque = true;
                     };
-
+             
                     // + 0x10 to get sprite palette
                     sprt_color += 0x10; // 0b100vv
                     // Palette number(byte 2) from OAM.
                     sprt_color += ((sprt_attr as u8) & 3) << 2; // 0b1ppcc
-
+             
                     // https://www.nesdev.org/wiki/PPU_OAM#Byte_2
                     // 0x20 = Priority (0: in front of background; 1: behind background)
                     sprt_foreground = if sprt_attr & 0x20 == 0x20 { false } else { true };
-
+             
                     // Set when a nonzero pixel of sprite 0 overlaps
                     // a nonzero background pixel; cleared at dot 1 of the pre-render
                     // line. Used for raster timing.
                     if !self.sprite_zero && self.show_background && i == 0 && sprt_opaque && bg_opaque {
                         self.sprite_zero = true;
                     };
-
+             
                     break;
                 } 
             }
-
+         
             let mut palette_addr = bg_color;
-
+             
             if !bg_opaque {
                 if sprt_opaque { palette_addr = sprt_color; } else { palette_addr = 0; }
             } else {
                 if sprt_foreground { palette_addr = sprt_color; }
             }
-
+            //let test = COLORS[self.read(palette_addr as u16) as usize];
+            //log(&format!("x: {} | y: {}", x, y));
+            //log(&format!("TEST: {}", test));
+            // broken
             self.frame[x][y].decode(COLORS[self.read(palette_addr as u16) as usize]);
         }
-
+        
         if self.cycle == 256 && self.show_background {
             self.inc_v_v();
         }
@@ -274,7 +306,8 @@ impl<'a> PPU<'a> {
         // During each visible scanline this secondary OAM is first cleared, 
         // and then a linear search of the entire primary OAM is carried out to find sprites that are within y range for the next scanline 
         // (the sprite evaluation phase)
-        if self.cycle > 320 && self.cycle <= 337 {
+        log(&format!("line: {} | cycle: {}", self.line, self.cycle));
+        if self.cycle == 321 {
             self.secondary_oam = [0; 8]; // reset array of entries
             let mut range = 8;
             if self.sprt_size == 16 { range = 16; }
@@ -290,20 +323,19 @@ impl<'a> PPU<'a> {
                     j += 1;
                 }
             }
-            if self.line < 261 { self.line += 1; } else { self.line = 0; }
-            self.cycle = 0;
+            if self.line < 261 { self.line += 1; }
+            //self.cycle = 0;
+            //log(&format!("{:?}", self.secondary_oam));
         }
-        
+         
         // Pre-render only
         if self.cycle == 339 && self.line == 261 && !self.even_frame {
+            log("not even frame and line 261");
             self.cycle = 0;
             self.line = 0;
         }
 
-        if self.cycle == 340 {
-            self.cycle = 0;
-            if self.line == 261 { self.line = 0; } else { self.line += 1; }
-        }
+        if self.cycle == 340 { self.cycle = 0; self.line = 0; }
 
         self.cycle += 1;
         return interrupt
@@ -313,7 +345,18 @@ impl<'a> PPU<'a> {
         self.bus.read(addr)
     }
 
-    fn get_oam_data(&self, oam_addr: usize) -> u8 {
+    pub fn set_data(&mut self, value: u8) {
+        self.bus.write(self.vram_addr, value);
+        self.vram_addr += if self.going_across { 1 } else { 32 };
+    }
+
+    pub fn get_data(&mut self) -> u8 {
+        let data = self.bus.read(self.vram_addr);
+        self.vram_addr += if self.going_across { 1 } else { 32 };
+        data
+    }
+
+    pub fn get_oam_data(&self, oam_addr: usize) -> u8 {
         // reads during vertical or forced blanking return the value from OAM at that address but do not increment.
         self.oam[oam_addr]
     }
@@ -389,6 +432,7 @@ impl<'a> PPU<'a> {
     pub fn set_controller(&mut self, val: u8) {
 
         self.temp_vram_addr = (self.temp_vram_addr & 0x73FF) | (((val & 0x3) as u16) << 8); // check "<< 8" later.
+        if (val & 4) == 4 { self.going_across = false; } else { self.going_across = true; }
         if (val & 0x10) == 0x10 { self.bg_section = Right; } else { self.bg_section = Left; }
         if (val & 8) == 8 { self.sprt_section = Right; } else { self.sprt_section = Left; }
         if (val & 0x20) == 0x20 { self.sprt_size = 16; } else { self.sprt_size = 8; }
@@ -399,7 +443,6 @@ impl<'a> PPU<'a> {
         // Disabling rendering  =  clear both bits 3 and 4
         // Each clock cycle = 1 pixel
         // Show background in leftmost 8 pixels of screen
-        if val & 4 == 4 { self.going_across = false; } else { self.going_across = true; }
         if val & 2 == 2 { self.hide_bg = false; } else { self.hide_bg = true; }
         // Show sprites in leftmost 8 pixels of screen
         if val & 4 == 4 { self.hide_sprt = false; } else { self.hide_sprt = true; }

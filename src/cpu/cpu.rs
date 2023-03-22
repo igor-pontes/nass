@@ -6,7 +6,15 @@ use super::{
     },
 };
 use int_enum::IntEnum;
+use wasm_bindgen::prelude::*;
 // https://en.wikipedia.org/wiki/MOS_Technology_6502
+
+#[wasm_bindgen]
+extern {
+    #[wasm_bindgen(js_namespace = console)]
+    fn log(s: &str);
+}
+
 
 pub const CYCLES_PER_FRAME: usize = 1786830/60; // (Cycles / seconds) / (Frames / seconds) = (Cycles / Frames) 1786830/60 = 
 // (1/1786830) * 10^9 =~ 560 ns per cycle (60 fps)
@@ -73,47 +81,40 @@ impl<'a> CPU<'a> {
 
     pub fn step(&mut self) {
         use Interrupt::*;
-
-        self.cycle += 1;
-
+        for _ in 0..3 {
+            let i = self.bus.ppu.step(); // PPU steps
+            self.interrupt(i);
+        }
+        //log("cycles");
+        //self.cycle += 1;
         if self.skip_cycles > 1 {
             self.skip_cycles -= 1;
             return
         }
-
+          
         match self.i {
-            // ?? what is this?
-            NMI => {
-                self.interrupt(NMI);
-                self.i = NULL;
-                return; 
-            },
-            IRQ => {
-                self.interrupt(IRQ);
-                self.i = NULL;
-                return;
-            },
-            _ => ()
+           NMI => {
+               self.interrupt(NMI);
+               self.i = NULL;
+               return; 
+           },
+           IRQ => {
+               self.interrupt(IRQ);
+               self.i = NULL;
+               return;
+           },
+           _ => ()
         }
 
         let op = self.bus.read(self.pc);
         self.pc += 1;
-
         let cycle_len = OP_CYCLES[op as usize];
 
         if self.execute_implied(op) || self.execute_relative(op) || self.operation1(op) || self.operation2(op) || self.operation0(op) {
             self.skip_cycles += cycle_len;
         }
 
-        // PPU
-        //for _ in 0..3 {
-        //    let i = self.bus.ppu.step();
-        //    self.interrupt(i);
-        //}
-    }
-
-    fn set_interrupt(&mut self, i: Interrupt) {
-        self.i = i;
+        
     }
 
     fn skip_dma_cycles(&mut self) {
@@ -123,6 +124,7 @@ impl<'a> CPU<'a> {
 
     fn interrupt(&mut self, i: Interrupt) {
         use Interrupt::*;
+        if i == NULL { return; }
         //  This flag(0x10) is used to distinguish software (BRK) interrupts from hardware interrupts (IRQ or NMI).
         //  The B flag is always set except when the P register is being
         //  pushed on stack when jumping to an interrupt routine to
@@ -138,7 +140,7 @@ impl<'a> CPU<'a> {
             // IRQ can't execute if "I" flag isn't clear.
             return;
         }
-
+        
         // https://www.nesdev.org/6502_cpu.txt
         if i == BRK {
             // skip only 1 instruction 'cause we already processed the instruction BRK (2 bytes)
@@ -148,12 +150,18 @@ impl<'a> CPU<'a> {
         self.push_stack((self.pc >> 8) as u8);
         self.push_stack(self.pc as u8);
         
-        let f = self.p | 0x20 | if i == BRK { 0x10 } else { 0x0 };
+        let f = self.p & 0xEF | 0x20 | if i == BRK { 0x10 } else { 0x0 };
         self.push_stack(f);
-
-        // "Side effects after pushing" - https://www.nesdev.org/wiki/Status_flags#The_B_flag
-        self.p = f | if i == BRK { 0x04 } else { 0x0 };
         
+        // "Side effects after pushing" - https://www.nesdev.org/wiki/Status_flags#The_B_flag
+        self.p = (f & 0x04) | if i == BRK { 0x04 } else { 0x0 };
+        
+        match self.i {
+            BRK => { self.pc = self.read_address(IRQ_VECTOR) },
+            NMI => { self.pc = self.read_address(NMI_VECTOR) },
+            _ => {}
+        }
+
         self.cycle += 6;
     }
 
@@ -174,13 +182,11 @@ impl<'a> CPU<'a> {
             20 - 00100000 (Flag 0 or 1,  )
         */ 
 
-        // TODO: review this. this is broken.
-        let (c, z, d, v, n) = (0x1 & self.p, 0x2 & self.p, 0x8 & self.p, 0x40 & self.p , 0x80 & self.p);
-        let mut opcode = opcode & 0x1F;
-        if opcode == 0x10 {
-            opcode &= 0x20;
-            // this is wrong. will redo.
-            if (opcode >> 5) == c || (opcode >> 4) == z || (opcode >> 2) == d || (opcode << 1) == v || (opcode << 2) == n {
+        // check this.
+        let status = [0x1 & self.p, (0x2 & self.p) >> 1, (0x8 & self.p) >> 3, (0x40 & self.p) >> 6 , (0x80 & self.p) >> 7];
+        if (opcode & 0x1F) == 0x10 {
+            let opcode = (opcode & 0x20) >> 5;
+            if status.iter().any(|s| s == &opcode) {
                 let offset = self.bus.read(self.pc);
                 self.skip_cycles += 1;
                 let new_pc = self.pc + offset as u16;
@@ -537,18 +543,19 @@ impl<'a> CPU<'a> {
 
     fn execute_implied(&mut self, opcode: u8) -> bool {
         use ImplicitOps::*;
+
         let implied = match ImplicitOps::from_int(opcode) {
             Ok(i) => i,
             _ => return false
         };
-
+        
         match implied {
             BRK => {
                 self.interrupt(Interrupt::BRK);
             },
             RTI => {
                 self.p = self.pull_stack() & 0xCF;
-                self.pc = self.pull_stack() as u16 | self.pull_stack() as u16 * 0x100;
+                self.pc = self.pull_stack() as u16 | ((self.pull_stack() as u16) * 0x100);
             },
             RTS => {
                 self.pc = self.pull_stack() as u16 | self.pull_stack() as u16 * 0x100;

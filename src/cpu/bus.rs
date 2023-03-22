@@ -44,7 +44,7 @@ type _Mapper = RefCell<Box<dyn Mapper>>;
 pub struct BUS<'a> {
     ram: [u8; RAM_SIZE],
     mapper: &'a _Mapper,
-    ppu: PPU<'a>,
+    pub ppu: PPU<'a>,
     ppu_registers: [u8; 8],
 }
 
@@ -69,13 +69,15 @@ impl<'a> BUS<'a> {
             else if reg == 2 { () } // Read only.
             else if reg == 5  { self.ppu_registers[5] = self.ppu.set_scroll(reg_data, val as u16); }
             else if reg == 6 { self.ppu_registers[6] = self.ppu.set_address(reg_data, val as u16); }
+            else if reg == 7 { self.ppu_registers[7] = val; self.ppu.set_data(val); }
             else { self.ppu_registers[reg] = val; }
         } else if addr == 0x4014 {
             self.ppu_registers[3] = 0;
             for i in 0..0xFF {
                 let val = self.read(((val as u16) << 8) | i);
                 self.ppu.set_oam_data(self.ppu_registers[3] as usize, val);
-                self.ppu_registers[3] += 1;
+                // Writes will increment OAMADDR after the write;
+                self.ppu_registers[3] += 1; 
             }
             self.ppu_registers[3] = 0;
         } else if addr < 0x6000 {
@@ -90,8 +92,10 @@ impl<'a> BUS<'a> {
             self.ram[(addr & 0x7FF) as usize]
         } else if addr < 0x4000 { // Mirrors of $2000–$2007
             let reg = (addr & 7) as usize;
-            if reg == 2 { self.ppu.set_status(); }
-            self.ppu_registers[reg]
+            if reg == 2 { self.ppu.set_status(); 0 }
+            else if reg == 4 { self.ppu.get_oam_data(self.ppu_registers[4] as usize) }
+            else if reg == 7 { self.ppu.get_data() }
+            else { self.ppu_registers[reg] }
         } else if addr < 0x4018 {
             if addr == 0x4016 || addr == 0x4017 {
                 0 // Inputs

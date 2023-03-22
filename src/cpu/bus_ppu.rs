@@ -41,7 +41,7 @@ impl<'a> BUSPPU<'a> {
             let index = (addr & 0x3FF) as usize; // each nametable = 0x400 size
             if addr < 0x2400 {
                 self.vram[self.nametable0 + index] = val;
-            } else if addr < 2800 {
+            } else if addr < 0x2800 {
                 self.vram[self.nametable1 + index] = val;
             } else if addr < 0x2C00 {
                 self.vram[self.nametable2 + index] = val;
@@ -61,7 +61,7 @@ impl<'a> BUSPPU<'a> {
             let index = (addr & 0x3FF) as usize; // each nametable = 0x400 size
             if addr < 0x2400 {
                 self.vram[self.nametable0 + index]
-            } else if addr < 2800 {
+            } else if addr < 0x2800 {
                 self.vram[self.nametable1 + index]
             } else if addr < 0x2C00 {
                 self.vram[self.nametable2 + index]
