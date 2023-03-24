@@ -113,10 +113,10 @@ impl<'a> CPU<'a> {
         if self.execute_implied(op) || self.execute_relative(op) || self.operation1(op) || self.operation2(op) || self.operation0(op) {
             self.skip_cycles += cycle_len;
         }
-
         
     }
 
+    // TODO
     fn skip_dma_cycles(&mut self) {
         self.skip_cycles += 513; // OAM DMA on its own takes 513 or 514 cycles, depending on whether alignment is needed. 
         self.skip_cycles += (self.cycle as u32) & 1; // alignment
@@ -124,6 +124,7 @@ impl<'a> CPU<'a> {
 
     fn interrupt(&mut self, i: Interrupt) {
         use Interrupt::*;
+        
         if i == NULL { return; }
         //  This flag(0x10) is used to distinguish software (BRK) interrupts from hardware interrupts (IRQ or NMI).
         //  The B flag is always set except when the P register is being
@@ -156,11 +157,13 @@ impl<'a> CPU<'a> {
         // "Side effects after pushing" - https://www.nesdev.org/wiki/Status_flags#The_B_flag
         self.p = (f & 0x04) | if i == BRK { 0x04 } else { 0x0 };
         
-        match self.i {
-            BRK => { self.pc = self.read_address(IRQ_VECTOR) },
-            NMI => { self.pc = self.read_address(NMI_VECTOR) },
-            _ => {}
-        }
+        // Writes to $4014 or $2004 should usually be done in an NMI routine, or otherwise within vertical blanking.
+        
+        self.pc = match i {
+            BRK => { self.read_address(IRQ_VECTOR) },
+            NMI => { self.read_address(NMI_VECTOR) },
+            _ => { self.pc }
+        };
 
         self.cycle += 6;
     }

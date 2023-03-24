@@ -10,6 +10,8 @@ use {
     crate::scene::Scene,
 };
 
+use std::fmt::format;
+
 // Debug
 use wasm_bindgen::prelude::*;
 
@@ -64,7 +66,7 @@ pub struct PPU<'a> {
     secondary_oam: [usize; 8], // (entries for "oam")
     line: usize,
     cycle: usize,
-    frame: [[Color; 0x100]; 0xF0],
+    frame: [[Color; 0xF0]; 0x100],
     scene: Scene,
     bus: BUSPPU<'a>,
 }
@@ -107,7 +109,7 @@ impl<'a> PPU<'a> {
             x_scroll: 0,
             hide_bg: false,
             hide_sprt: false,
-            frame: [[Color::new(); 0x100]; 0xF0],
+            frame: [[Color::new(); 0xF0]; 0x100],
             going_across: true,
             scene,
             bus
@@ -124,10 +126,10 @@ impl<'a> PPU<'a> {
         
         if self.line >= 240 && self.line <= 260 {
             if self.cycle == 1 && self.line == 240 {
-                for x in 0..256 {
-                    for y in 0..240 {
-                        let value = &self.frame[x as usize][y as usize].to_hex();
-                        self.scene.set_pixel(x, y, value);
+                for x in 0..0x100 {
+                    for y in 0..0xF0 {
+                        //let value = &self.frame[x as usize][y as usize].to_hex();
+                        self.scene.set_pixel(x, y, "#cccccc");
                     }
                 }
             }
@@ -289,8 +291,6 @@ impl<'a> PPU<'a> {
             }
             //let test = COLORS[self.read(palette_addr as u16) as usize];
             //log(&format!("x: {} | y: {}", x, y));
-            //log(&format!("TEST: {}", test));
-            // broken
             self.frame[x][y].decode(COLORS[self.read(palette_addr as u16) as usize]);
         }
         
@@ -306,8 +306,10 @@ impl<'a> PPU<'a> {
         // During each visible scanline this secondary OAM is first cleared, 
         // and then a linear search of the entire primary OAM is carried out to find sprites that are within y range for the next scanline 
         // (the sprite evaluation phase)
-        log(&format!("line: {} | cycle: {}", self.line, self.cycle));
-        if self.cycle == 321 {
+        
+        //log(&format!("line: {} | cycle: {}", self.line, self.cycle));
+        
+        if self.cycle == 321 && self.line != 261 {
             self.secondary_oam = [0; 8]; // reset array of entries
             let mut range = 8;
             if self.sprt_size == 16 { range = 16; }
@@ -323,9 +325,9 @@ impl<'a> PPU<'a> {
                     j += 1;
                 }
             }
-            if self.line < 261 { self.line += 1; }
-            //self.cycle = 0;
-            //log(&format!("{:?}", self.secondary_oam));
+            self.line += 1; 
+            self.cycle = 0;
+            //log(&format!(""));
         }
          
         // Pre-render only

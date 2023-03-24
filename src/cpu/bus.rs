@@ -36,6 +36,14 @@ use std::cell::RefCell;
 use crate::mapper::Mapper;
 use super::super::ppu::*;
 
+use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen]
+extern {
+    #[wasm_bindgen(js_namespace = console)]
+    fn log(s: &str);
+}
+
 const RAM_SIZE: usize = 0x800;
 //const MEMORY_SIZE: usize = 0x10000; // 0x10000 = 0xFFFF + 1
 
@@ -104,6 +112,7 @@ impl<'a> BUS<'a> {
             }
         } else {
             //  Battery Backed Save or Work RAM not implemented.
+            //log(&format!("{}", addr));
             self.mapper.borrow_mut().read_prg(addr)
         }
     }
