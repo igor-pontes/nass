@@ -67,7 +67,6 @@ pub struct PPU<'a> {
     line: usize,
     cycle: usize,
     frame: [[Color; 0xF0]; 0x100],
-    scene: Scene,
     bus: BUSPPU<'a>,
 }
 
@@ -111,7 +110,6 @@ impl<'a> PPU<'a> {
             hide_sprt: false,
             frame: [[Color::new(); 0xF0]; 0x100],
             going_across: true,
-            scene,
             bus
         }
     }
@@ -126,12 +124,7 @@ impl<'a> PPU<'a> {
         
         if self.line >= 240 && self.line <= 260 {
             if self.cycle == 1 && self.line == 240 {
-                for x in 0..0x100 {
-                    for y in 0..0xF0 {
-                        //let value = &self.frame[x as usize][y as usize].to_hex();
-                        self.scene.set_pixel(x, y, "#cccccc");
-                    }
-                }
+                //TODO
             }
             if self.cycle == 1 && self.line == 241 { 
                 self.v_blank = true;

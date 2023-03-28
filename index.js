@@ -1,22 +1,21 @@
-import { Scene, run } from "./pkgs/nass_bg.js";
-//import { Scene, disassemble, run } from "nass_bg";
+import init, { disassemble, step } from "./pkg/nass.js";
+
 const CELL_SIZE = 1;
 const GRID_COLOR = "#CCCCCC";
 const ALIVE_COLOR = "#000000";
 
-const scene = Scene.new();
-const width = scene.width;
-const height = scene.height;
+await init();
 
 const canvas = document.getElementById("nass-canvas");
-canvas.height = CELL_SIZE * height;
-canvas.width = CELL_SIZE * width;
+const width = 10;
+const height = 10;
+canvas.height = CELL_SIZE * width;
+canvas.width = CELL_SIZE * height;
 
 const ctx = canvas.getContext('2d');
 
 const renderLoop = () => {
-  //universe.tick();
-  run();
+  step(); // Emulator step
   drawGrid();
   drawCells();
   requestAnimationFrame(renderLoop);
@@ -42,16 +41,11 @@ const drawGrid = () => {
 };
 
 const drawCells = () => {
-
   ctx.beginPath();
   for (let row = 0; row < height; row++) {
     for (let col = 0; col < width; col++) {
 
-      if (scene.pixels) {
-        ctx.fillStyle = scene.pixels[row][col];
-      } else {
-        ctx.fillStyle = "black";
-      }
+      ctx.fillStyle = "black";
 
       ctx.fillRect(
         col * CELL_SIZE,
@@ -61,23 +55,22 @@ const drawCells = () => {
       );
     }
   }
-
   ctx.stroke();
 };
 
-let element = document.getElementById("rom-input");
-element.onchange = getFile;
+document.getElementById("rom-input").onchange = getFile;
 
 function getFile() {
   var file = element.files[0];
-  const reader = new FileReader();
-  reader.readAsDataURL(file);
-  reader.addEventListener('load', () => {
-    localStorage.setItem('file', reader.result
-        .replace('data:', '')
-        .replace(/^.+,/, ''));
-  });
-  //disassemble(localStorage.getItem("file"), scene);
+  const loadFile = (file) => {
+    return Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => resolve(e.target.result);
+      reader.onerror = (e) => reject(reader.error);
+      reader.readAsArrayBuffer(file);
+    })
+  }
+  disassemble(loadFile(file));
 }
 
 drawGrid();

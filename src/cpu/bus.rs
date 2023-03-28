@@ -67,6 +67,7 @@ impl<'a> BUS<'a> {
     }
 
     pub fn write(&mut self, addr: u16, val: u8) {
+        // Not using match because using older Rust version
         if addr < 0x2000 {
             self.ram[(addr & 0x7FF) as usize] = val;
         } else if addr < 0x4000 { // Mirrors of $2000–$2007
