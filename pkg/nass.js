@@ -20,6 +20,15 @@ function takeObject(idx) {
     return ret;
 }
 
+function addHeapObject(obj) {
+    if (heap_next === heap.length) heap.push(heap.length + 1);
+    const idx = heap_next;
+    heap_next = heap[idx];
+
+    heap[idx] = obj;
+    return idx;
+}
+
 const cachedTextDecoder = new TextDecoder('utf-8', { ignoreBOM: true, fatal: true });
 
 cachedTextDecoder.decode();
@@ -37,55 +46,41 @@ function getStringFromWasm0(ptr, len) {
     return cachedTextDecoder.decode(getUint8Memory0().subarray(ptr, ptr + len));
 }
 
-function addHeapObject(obj) {
-    if (heap_next === heap.length) heap.push(heap.length + 1);
-    const idx = heap_next;
-    heap_next = heap[idx];
+function makeMutClosure(arg0, arg1, dtor, f) {
+    const state = { a: arg0, b: arg1, cnt: 1, dtor };
+    const real = (...args) => {
+        // First up with a closure we increment the internal reference
+        // count. This ensures that the Rust closure environment won't
+        // be deallocated while we're invoking it.
+        state.cnt++;
+        const a = state.a;
+        state.a = 0;
+        try {
+            return f(a, state.b, ...args);
+        } finally {
+            if (--state.cnt === 0) {
+                wasm.__wbindgen_export_0.get(state.dtor)(a, state.b);
 
-    heap[idx] = obj;
-    return idx;
+            } else {
+                state.a = a;
+            }
+        }
+    };
+    real.original = state;
+
+    return real;
 }
-/**
-* @param {ArrayBuffer} _rom
-*/
-export function disassemble(_rom) {
-    wasm.disassemble(addHeapObject(_rom));
+function __wbg_adapter_10(arg0, arg1) {
+    wasm.wasm_bindgen__convert__closures__invoke0_mut__h1bd6233495d570e8(arg0, arg1);
 }
 
 /**
+* @param {ArrayBuffer} rom
+* @returns {any}
 */
-export function step() {
-    wasm.step();
-}
-
-/**
-*/
-export class Emulator {
-
-    __destroy_into_raw() {
-        const ptr = this.ptr;
-        this.ptr = 0;
-
-        return ptr;
-    }
-
-    free() {
-        const ptr = this.__destroy_into_raw();
-        wasm.__wbg_emulator_free(ptr);
-    }
-    /**
-    * @returns {number}
-    */
-    get v() {
-        const ret = wasm.__wbg_get_emulator_v(this.ptr);
-        return ret;
-    }
-    /**
-    * @param {number} arg0
-    */
-    set v(arg0) {
-        wasm.__wbg_set_emulator_v(this.ptr, arg0);
-    }
+export function disassemble(rom) {
+    const ret = wasm.disassemble(addHeapObject(rom));
+    return takeObject(ret);
 }
 
 async function load(module, imports) {
@@ -128,8 +123,39 @@ function getImports() {
     imports.wbg.__wbindgen_object_drop_ref = function(arg0) {
         takeObject(arg0);
     };
+    imports.wbg.__wbindgen_object_clone_ref = function(arg0) {
+        const ret = getObject(arg0);
+        return addHeapObject(ret);
+    };
+    imports.wbg.__wbg_buffer_cf65c07de34b9a08 = function(arg0) {
+        const ret = getObject(arg0).buffer;
+        return addHeapObject(ret);
+    };
+    imports.wbg.__wbg_new_537b7341ce90bb31 = function(arg0) {
+        const ret = new Uint8Array(getObject(arg0));
+        return addHeapObject(ret);
+    };
+    imports.wbg.__wbg_set_17499e8aa4003ebd = function(arg0, arg1, arg2) {
+        getObject(arg0).set(getObject(arg1), arg2 >>> 0);
+    };
+    imports.wbg.__wbg_length_27a2afe8ab42b09f = function(arg0) {
+        const ret = getObject(arg0).length;
+        return ret;
+    };
+    imports.wbg.__wbg_newwithbyteoffset_cda60d178d0a64aa = function(arg0, arg1) {
+        const ret = new Uint8Array(getObject(arg0), arg1 >>> 0);
+        return addHeapObject(ret);
+    };
     imports.wbg.__wbindgen_throw = function(arg0, arg1) {
         throw new Error(getStringFromWasm0(arg0, arg1));
+    };
+    imports.wbg.__wbindgen_memory = function() {
+        const ret = wasm.memory;
+        return addHeapObject(ret);
+    };
+    imports.wbg.__wbindgen_closure_wrapper40 = function(arg0, arg1, arg2) {
+        const ret = makeMutClosure(arg0, arg1, 15, __wbg_adapter_10);
+        return addHeapObject(ret);
     };
 
     return imports;

@@ -1,8 +1,4 @@
-use AddressingMode::*;
-use int_enum::IntEnum;
-
-// https://www.nesdev.org/6502_cpu.txt
-// https://www.nesdev.org/wiki/CPU_addressing_modes
+use num_enum::TryFromPrimitive;
 
 pub const OP_MASK: u8 = 0x03; // Which column of instructions you want?
 // ORA (x, ind) = 0b0000001
@@ -32,7 +28,7 @@ pub const INST_MODE_SHIFT: u8 = 0x05; // We only care about first 3 digits
 // E.g. column 0x02 does not have bits 0, 2, 3(1111[00]1[0]) active.
 
 #[repr(u8)]
-#[derive(Clone, Copy, Debug, Eq, PartialEq, IntEnum)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, TryFromPrimitive)]
 pub enum ImplicitOps {
     BRK = 0x00,
     RTI = 0x04,
@@ -62,7 +58,7 @@ pub enum ImplicitOps {
 }
 
 #[repr(u8)]
-#[derive(Clone, Copy, Debug, Eq, PartialEq, IntEnum)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, TryFromPrimitive)]
 pub enum ImmediateOps {
     LDY = 0xA0,
     CPY = 0xC0,
@@ -77,50 +73,20 @@ pub enum ImmediateOps {
 }
 
 #[repr(u8)]
-#[derive(Clone, Copy, Debug, Eq, PartialEq, IntEnum)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, TryFromPrimitive)]
 pub enum AbsoluteYOps  {
     TAS = 0x9B,
     LAS = 0xBB,
     SHA = 0x9F,
 }
 
-pub fn is_indy_sha(opcode: u8) -> bool {
-    if opcode == 0x93 { true } else { false }
-}
-
-pub fn is_absx_shy(opcode: u8) -> bool {
-    if opcode == 0x9C { true } else { false }
-}
-
-// Illegal Immediate ANCs
-pub fn is_immediate_anc(opcode: u8) -> bool {
-    if opcode == 0x0B || opcode == 0x2B { true } else { false }
-}
-
-// Illegal Implicit NOPs
-pub fn is_implicit_nop(opcode: u8) -> bool {
-    if opcode == 0x3A || opcode == 0x5A ||opcode == 0x7A || opcode == 0xDA || opcode == 0xFA || opcode == 0x1A {
-        true
-    } else { false }
-}
-
-// Illegal Immmediate NOPs
-pub fn is_immediate_nop(opcode: u8) -> bool {
-    if opcode == 0x80 || opcode == 0x82 || opcode == 0xC2 ||opcode == 0xE2 || opcode == 0x89 {
-        true
-    } else { false }
-}
-
 #[derive(Debug, PartialEq)]
 pub enum AddressingMode { 
-    Implicit,
-    Accumulator,
     Immediate,
     Zeropage,
     ZeropageX,
     ZeropageY,
     ZeropageIndexed,
-    Relative,
     Absolute,
     AbsoluteX,
     AbsoluteY,
@@ -130,10 +96,11 @@ pub enum AddressingMode {
     IndirectY,
     None
 }
+
 // Last to calculate (if not operation_0, it's a NOP zeropage or zeropageX)
 // Blend NOP(Zpg, Zpgx), NOP(Abs, Ansx) with Operation0's Adressmode
 #[repr(u8)]
-#[derive(Clone, Copy, Debug, Eq, PartialEq, IntEnum)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, TryFromPrimitive)]
 pub enum Operation0 {
     BIT = 0x1,
     STY = 0x4, // or SHY
@@ -143,7 +110,7 @@ pub enum Operation0 {
 }
 
 #[repr(u8)]
-#[derive(Clone, Copy, Debug, Eq, PartialEq, IntEnum)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, TryFromPrimitive)]
 pub enum Operation1 {
     ORA = 0x0,
     AND = 0x1,
@@ -156,7 +123,7 @@ pub enum Operation1 {
 }
 
 #[repr(u8)]
-#[derive(Clone, Copy, Debug, Eq, PartialEq, IntEnum)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, TryFromPrimitive)]
 pub enum Operation2 {
     ASL = 0x0,
     ROL = 0x1,
@@ -180,42 +147,39 @@ pub enum Operation3 {
 }
 
 pub const ADDR_1: [AddressingMode; 8] = [
-    IndirectX,
-    Zeropage,
-    Immediate,
-    Absolute,
-    IndirectY,
-    ZeropageX,
-    AbsoluteY, // Do we need this? 
-    AbsoluteX
+    AddressingMode::IndirectX,
+    AddressingMode::Zeropage,
+    AddressingMode::Immediate,
+    AddressingMode::Absolute,
+    AddressingMode::IndirectY,
+    AddressingMode::ZeropageX,
+    AddressingMode::AbsoluteY,
+    AddressingMode::AbsoluteX
 ];
 
 pub const ADDR_2: [AddressingMode; 8] = [
-    Immediate,
-    Zeropage,
-    Accumulator,
-    Absolute,
-    None,
-    ZeropageIndexed, // X or Y
-    None,
-    AbsoluteIndexed // X or Y
+    AddressingMode::Immediate,
+    AddressingMode::Zeropage,
+    AddressingMode::None,
+    AddressingMode::Absolute,
+    AddressingMode::None,
+    AddressingMode::ZeropageIndexed, // X or Y
+    AddressingMode::None,
+    AddressingMode::AbsoluteIndexed // X or Y
 ];
 
 pub const ADDR_3: [AddressingMode; 8] = [
-    IndirectX,
-    Zeropage,
-    None,
-    Absolute,
-    IndirectY,
-    ZeropageIndexed, // X or Y
-    None,
-    AbsoluteIndexed // X or Y
+    AddressingMode::IndirectX,
+    AddressingMode::Zeropage,
+    AddressingMode::None,
+    AddressingMode::Absolute,
+    AddressingMode::IndirectY,
+    AddressingMode::ZeropageIndexed, // X or Y
+    AddressingMode::None,
+    AddressingMode::AbsoluteIndexed // X or Y
 ];
 
-// 0x100 = 0xFF + 1(zero) (total OPCODES)
-
-// use u32. if u8 you will need to cast it to u32 anyways (which hurts performance)
-pub const OP_CYCLES: [u32; 0x100] = [
+pub const OP_CYCLES: [u8; 0x100] = [
     7, 6, 0, 0, 0, 3, 5, 0, 3, 2, 2, 0, 0, 4, 6, 0,
     2, 5, 0, 0, 0, 4, 6, 0, 2, 4, 0, 0, 0, 4, 7, 0,
     6, 6, 0, 0, 3, 3, 5, 0, 4, 2, 2, 0, 4, 4, 6, 0,

@@ -11,34 +11,19 @@ pub const COLORS: [u32; 0x40] = [
     0xe4e594ff, 0xcfef96ff, 0xbdf4abff, 0xb3f3ccff, 0xb5ebf2ff, 0xb8b8b8ff, 0x000000ff, 0x000000ff,
 ];
 
-#[derive(Clone, Copy, Debug)]
-pub struct Color {
-    red: u8,
-    green: u8,
-    blue: u8,
-    //alpha: u8,
+// pub const COLORS: [u32; 0x40] = [
+//     0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F,
+//     0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F,
+//     0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x29, 0x2A, 0x2B, 0x2C, 0x2D, 0x2E, 0x2F,
+//     0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E, 0x3F,
+// ];
+
+pub fn to_hex(color: u8) -> String {
+    let color = COLORS[color as usize];
+    String::from(format!("#{}{}{}",
+        u8_to_hex_string(&(((color >> 24) & 0xFF) as u8)).iter().collect::<String>(),
+        u8_to_hex_string(&(((color >> 16) & 0xFF) as u8)).iter().collect::<String>(),
+        u8_to_hex_string(&(((color >> 8) & 0xFF) as u8)).iter().collect::<String>(),
+        //u8_to_hex_string(&self.alpha).iter().collect::<String>(),
+    ))
 }
-
-impl Color {
-    pub fn new() -> Color {
-        //Color { red: 0, green: 0, blue: 0, alpha: 0 }
-        Color { red: 0, green: 0, blue: 0 }
-    }
-    pub fn decode(&mut self, color: u32) {
-        self.red = ((color >> 24) & 0xFF) as u8;
-        self.green = ((color >> 16) & 0xFF) as u8;
-        self.blue = ((color >> 8) & 0xFF) as u8;
-        //self.alpha = (color & 0xFF) as u8;
-    }
-
-    pub fn to_hex(&self) -> String {
-        // convert values to hexadecimal strings
-        String::from(format!("#{}{}{}",
-            u8_to_hex_string(&self.red).iter().collect::<String>(),
-            u8_to_hex_string(&self.green).iter().collect::<String>(),
-            u8_to_hex_string(&self.blue).iter().collect::<String>(),
-            //u8_to_hex_string(&self.alpha).iter().collect::<String>(),
-        ))
-    }
-}
-

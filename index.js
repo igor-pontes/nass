@@ -1,78 +1,54 @@
-import init, { disassemble, step } from "./pkg/nass.js";
-
-const CELL_SIZE = 1;
-const GRID_COLOR = "#CCCCCC";
-const ALIVE_COLOR = "#000000";
+import init, { disassemble } from "./pkg/nass.js";
 
 await init();
 
 const canvas = document.getElementById("nass-canvas");
-const width = 10;
-const height = 10;
-canvas.height = CELL_SIZE * width;
-canvas.width = CELL_SIZE * height;
-
 const ctx = canvas.getContext('2d');
 
-const renderLoop = () => {
-  step(); // Emulator step
-  drawGrid();
-  drawCells();
-  requestAnimationFrame(renderLoop);
-};
+const height = 256;
+const width = 240;
 
-const drawGrid = () => {
-  ctx.beginPath();
-  ctx.strokeStyle = GRID_COLOR;
+canvas.height = 256;
+canvas.width = 240;
 
-  // Vertical lines.
-  for (let i = 0; i < width; i++) {
-    ctx.moveTo(i * CELL_SIZE, 0);
-    ctx.lineTo(i * CELL_SIZE, CELL_SIZE * height);
-  }
-
-  // Horizontal lines.
-  for (let j = 0; j < height; j++) {
-    ctx.moveTo(0, j * CELL_SIZE);
-    ctx.lineTo(CELL_SIZE * width, j * CELL_SIZE);
-  }
-
-  ctx.stroke();
-};
+document.getElementById("rom-input").onchange = getFile;
 
 const drawCells = () => {
   ctx.beginPath();
   for (let row = 0; row < height; row++) {
     for (let col = 0; col < width; col++) {
 
-      ctx.fillStyle = "black";
+      ctx.fillStyle = "#000000";
 
       ctx.fillRect(
-        col * CELL_SIZE,
-        row * CELL_SIZE,
-        CELL_SIZE,
-        CELL_SIZE
+        col,
+        row,
+        1,
+        1
       );
     }
   }
-  ctx.stroke();
-};
-
-document.getElementById("rom-input").onchange = getFile;
+}
 
 function getFile() {
-  var file = element.files[0];
+  const file = document.getElementById("rom-input").files[0];
   const loadFile = (file) => {
-    return Promise((resolve, reject) => {
+    return new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = (e) => resolve(e.target.result);
-      reader.onerror = (e) => reject(reader.error);
+      reader.onerror = (_) => reject(reader.error);
       reader.readAsArrayBuffer(file);
     })
   }
-  disassemble(loadFile(file));
+  loadFile(file).then(rom => { 
+    const step = disassemble(rom);
+    const fn = () => {
+      step();
+      drawCells();
+      requestAnimationFrame(fn); 
+    }
+    requestAnimationFrame(fn);
+  })
 }
 
-drawGrid();
 drawCells();
-requestAnimationFrame(renderLoop);
