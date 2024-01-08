@@ -59,14 +59,6 @@ impl CPU {
 
         let cycle_len = OP_CYCLES[op as usize] as usize;
 
-        // log(&format!("#{} -> {}", self.pc, self.bus.read(self.pc)));
-        // log(&format!("IMPLIED: {}", self.execute_implied(op)));
-        // log(&format!("RELATIVE: {}", self.execute_relative(op)));
-        // log(&format!("OPERATION1: {}", self.operation1(op)));
-        // log(&format!("OPERATION2: {}", self.operation2(op)));
-        // log(&format!("OPERATION0: {}", self.operation0(op)));
-
-        // log(&format!("OP: {:#06x}", op)); 
         if self.execute_implied(op) || self.execute_relative(op) || self.operation1(op) || self.operation2(op) || self.operation0(op) {
             self.cycle += cycle_len;
         }
