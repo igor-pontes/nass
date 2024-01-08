@@ -6,7 +6,7 @@ mod ppu_status;
 pub use self::color::*;
 use crate::frame::Frame;
 use crate::Interrupt;
-use crate::mapper::Cartridge;
+use crate::mapper::*;
 pub use self::addr_register::AddrRegister;
 pub use self::control_register::ControlRegister;
 pub use self::ppu_mask::PPUMask;
@@ -21,7 +21,7 @@ extern {
 }
 
 pub struct PPU {
-    pub cartridge: *mut Cartridge,
+    pub mapper: *mut dyn Mapper,
     pub palette_table: [u8; 32],
     pub vram: [u8; 0x800], // Nametables
     // OAM
@@ -41,9 +41,9 @@ pub struct PPU {
 }
 
 impl PPU {
-    pub fn new(cartridge: *mut Cartridge) -> Self {
+    pub fn new(mapper: *mut dyn Mapper) -> Self {
         PPU {
-            cartridge,
+            mapper,
             palette_table: [0; 32],
             vram: [0; 0x800],
             oam_data: [0; 0x100],
@@ -63,6 +63,7 @@ impl PPU {
     }
 
     pub fn step(&mut self, interrupt: &mut Interrupt )  {
+        // log("------- PPU -------");
         let mut color_bg = 0;
         match self.scanline {
             261 => { 
@@ -75,7 +76,7 @@ impl PPU {
                 if self.mask.show_background()   {
                     log("Background enabled.");
                     let show_leftmost = (self.mask.show_background_leftmost() as u8 ^ (self.cycle <= 8) as u8) != 0;
-                    log(&format!("{}", show_leftmost));
+                    // log(&format!("{}", show_leftmost));
                     if self.cycle != 0 && (!show_leftmost || show_leftmost != false) {
                         let v = self.addr.get();
                         let fine_y = v & 0x7000 >> 12;
@@ -90,14 +91,15 @@ impl PPU {
                         let half_pattern_table = if self.ctrl.get_background_pattern_addr() { 0x1000 } else { 0 };
                         let color_addr_0 = half_pattern_table | (tile as u16) << 4 | 1 << 3 | fine_y;
                         let color_addr_1 = half_pattern_table | (tile as u16) << 4 | 0 << 3 | fine_y;
-                        let color_bit_0 = unsafe { ( (*self.cartridge).read_chr(color_addr_0) >> self.fine_x ) & 0x1 };
-                        let color_bit_1 = unsafe { ( ( (*self.cartridge).read_chr(color_addr_1) >> self.fine_x ) & 0x1 ) << 1 };
+                        let color_bit_0 = unsafe { ( (*self.mapper).read_chr(color_addr_0) >> self.fine_x ) & 0x1 };
+                        let color_bit_1 = unsafe { ( ( (*self.mapper).read_chr(color_addr_1) >> self.fine_x ) & 0x1 ) << 1 };
                         let color_tile = color_bit_1 | color_bit_0;
 
                         let tile_column = (v & 0x1f) as u8;
                         let tile_row = ((v & 0x3e0) >> 5) as u8;
                         let quadrant = (tile_row & 0x2) + ((tile_column & 0x2) >> 1);
                         let attr_color = (attr_data & (0x3 << (quadrant * 2))) >> (quadrant * 2);
+                        log(&format!("attr_color: {}; color_tile: {}", attr_color, color_tile));
                         color_bg = (0x10 | attr_color | color_tile) as u8;
                     }
                 }
@@ -117,8 +119,9 @@ impl PPU {
                         self.addr.coarse_x_increment();
                     }
                 }
+                // log(&format!("PPU color: {}", color_bg));
                 // Set Frame's pixel
-                log(&color::to_hex(color_bg & 0xFF));
+                // log(&color::to_hex(color_bg & 0xFF));
                 // self.frame.set_pixel(0, 0, color::COLORS[(color_bg & 0xFF) as usize])
             }
             240 => {
@@ -203,7 +206,7 @@ impl PPU {
         match addr {
             0..=0x1FFF => {
                 let result = self.internal_data_buff;
-                self.internal_data_buff = unsafe { (*self.cartridge).read_chr(addr) };
+                self.internal_data_buff = unsafe { (*self.mapper).read_chr(addr) };
                 result
             },
             0x2000..=0x2FFF => {
@@ -228,15 +231,20 @@ impl PPU {
         let mirrored_vram = addr & 0x2FFF;
         let vram_index = mirrored_vram - 0x2000;
         let name_table = vram_index / 0x400;
-        let mirroring = unsafe { &(*self.cartridge).mirroring };
+        let mirroring = unsafe { (*self.mapper).get_mirroring() };
+        // 00b - 1-screen mirroring (nametable 0)
+        // 01b - 1-screen mirroring (nametable 1)
         match (mirroring, name_table) {
             (Mirroring::Vertical, 2) | (Mirroring::Vertical, 3) => vram_index - 0x800,
             (Mirroring::Horizontal, 1) => vram_index - 0x400,
             (Mirroring::Horizontal, 2) => vram_index - 0x400,
             (Mirroring::Horizontal, 3) => vram_index - 0x800,
+            (Mirroring::OneScreenLower, 1) | (Mirroring::OneScreenLower, 2) | (Mirroring::OneScreenLower, 3) => vram_index & 0x23FF,
+            (Mirroring::OneScreenUpper, 0) => vram_index + 0x400,
+            (Mirroring::OneScreenUpper, 2) => vram_index - 0x400,
+            (Mirroring::OneScreenUpper, 3) => vram_index - 0x800,
             _ => vram_index
         }
     }
-
 }
 

@@ -1,5 +1,13 @@
 use bitflags::bitflags;
 
+use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen]
+extern {
+    #[wasm_bindgen(js_namespace = console)]
+    fn log(s: &str);
+}
+
 bitflags! {
     pub struct PPUMask: u8 {
         const GREYSCALE                = 0b00000001;

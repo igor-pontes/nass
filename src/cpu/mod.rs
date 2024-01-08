@@ -25,7 +25,8 @@ pub struct CPU {
     p: u8, // Status Register (flags)
     pub cycle: usize,
     bus: BUS,
-    skip_cycles: usize
+    skip_cycles: usize,
+    debug: bool
 }
 
 impl CPU {
@@ -35,8 +36,9 @@ impl CPU {
             x: 0,
             y: 0,
             pc: 0,
+            debug: true,
             s: 0xFD,
-            p: 0x34,
+            p: 0x34, // 0011 0100 (IRQ disabled)
             bus,
             cycle: 0,
             skip_cycles: 0
@@ -51,12 +53,29 @@ impl CPU {
         if (*interrupt) == Interrupt::NMI {
             self.execute_nmi();
         }
+        log(&format!("----------------------"));
+        log(&format!("PC: {:#06x}", self.pc));
         let op = self.bus.read(self.pc);
-        self.pc += 1;
+
         let cycle_len = OP_CYCLES[op as usize] as usize;
+
+        // log(&format!("#{} -> {}", self.pc, self.bus.read(self.pc)));
+        // log(&format!("IMPLIED: {}", self.execute_implied(op)));
+        // log(&format!("RELATIVE: {}", self.execute_relative(op)));
+        // log(&format!("OPERATION1: {}", self.operation1(op)));
+        // log(&format!("OPERATION2: {}", self.operation2(op)));
+        // log(&format!("OPERATION0: {}", self.operation0(op)));
+
+        // log(&format!("OP: {:#06x}", op)); 
         if self.execute_implied(op) || self.execute_relative(op) || self.operation1(op) || self.operation2(op) || self.operation0(op) {
             self.cycle += cycle_len;
         }
+
+        if self.debug { 
+            log(&format!(" cycle: {:#06x} | A: {:#06x} | X: {:#06x} | Y: {:#06x} | s: {:#06x} | p: {:#010b} ({:#04x})", self.cycle, self.a, self.x, self.y, self.s, self.p, self.p)); 
+        }
+
+        self.pc += 1;
     }
 
     pub fn reset(&mut self) {
@@ -84,16 +103,32 @@ impl CPU {
     }
 
     fn execute_relative(&mut self, opcode: u8) -> bool { 
-        let status = [0x1 & self.p, (0x2 & self.p) >> 1, (0x8 & self.p) >> 3, (0x40 & self.p) >> 6 , (0x80 & self.p) >> 7];
-        if (opcode & 0x1F) == 0x10 {
-            let opcode = (opcode & 0x20) >> 5;
-            if status.iter().any(|s| s == &opcode) {
-                let new_pc = self.pc + self.bus.read(self.pc) as u16;
+        // OBS: Subtract one from self.pc here because "step()" function already addds one to the
+        // program counter.
+        
+        // 000 10000 - Branch on N=0 (self.p & 0x80 = 0)
+        // 001 10000 - Branch on N=1 (self.p & 0x80 = 1)
+        // 010 10000 - Branch on V=0 (self.p & 0x40 = 0)
+        // 011 10000 - Branch on V=1 (self.p & 0x40 = 1)
+        // 100 10000 - Branch on C=0 (self.p & 0x01 = 0)
+        // 101 10000 - Branch on C=1 (self.p & 0x01 = 1)
+        // 110 10000 - Branch on Z=0 (self.p & 0x02 = 0)
+        // 111 10000 - Branch on Z=1 (self.p & 0x02 = 1)
+        
+        let status = [(0x80 & self.p) >> 7, (0x40 & self.p) >> 6, 0x01 & self.p, (0x02 & self.p) >> 1];
+        if (opcode & 0x10) == 0x10 {
+            let cond = (opcode & 0x20) >> 5;
+            let inst = (opcode & 0xC0) >> 6;
+            if status[inst as usize] == cond {
+                let offset = self.bus.read(self.pc + 1) as i8;
+                let old_pc = self.pc + 2;
+                let (new_pc, _) = old_pc.overflowing_add_signed(offset as i16);
                 self.cycle += 1;
-                self.set_page_crossed(self.pc, new_pc, 2);
-                self.pc = new_pc;
-            } else {
-                self.pc += 1;
+                self.set_page_crossed(self.pc, new_pc, 1);
+                // log(&format!("[BRANCH] new_pc {:#06x}", new_pc));
+                self.pc = new_pc - 1;
+            } else { 
+                self.pc += 2 - 1; // next instruction
             }
             true
         } else {
@@ -110,67 +145,78 @@ impl CPU {
     fn get_address_mode(&mut self, addr_mode: &AddressingMode, inst: u8) -> u16 {
         match addr_mode {
             AddressingMode::Immediate => {
-                let addr = self.pc;
                 self.pc += 1;
+                let addr = self.pc;
+                // self.pc += 1;
                 addr
             },
             AddressingMode::Absolute => {
+                self.pc += 1;
                 let addr = self.read_address(self.pc);
-                self.pc += 2;
+                self.pc += 1;
                 addr
             },
             AddressingMode::Zeropage => {
-                let addr = self.bus.read(self.pc);
                 self.pc += 1;
+                let addr = self.bus.read(self.pc);
+                // self.pc += 1;
                 addr as u16
             },
             AddressingMode::ZeropageX => {
-                let addr = self.bus.read(self.pc).wrapping_add(self.x);
                 self.pc += 1;
+                let addr = self.bus.read(self.pc).wrapping_add(self.x);
+                // self.pc += 1;
                 addr as u16
             },
             AddressingMode::ZeropageY => {
-                let addr = self.bus.read(self.pc).wrapping_add(self.y);
                 self.pc += 1;
+                let addr = self.bus.read(self.pc).wrapping_add(self.y);
+                // self.pc += 1;
                 addr as u16
             },
             AddressingMode::AbsoluteX => {
+                self.pc += 2;
                 let addr = self.read_address(self.pc);
                 let addr_x = addr.wrapping_add(self.x as u16);
                 // STA do not increment 1 cycle if page crossed.
                 if inst != 0x99 { self.set_page_crossed(addr, addr_x, 1); }
-                self.pc += 2;
+                // self.pc += 2;
                 addr_x
             },
             AddressingMode::AbsoluteY => {
+                self.pc += 2;
                 let addr = self.read_address(self.pc);
                 let addr_y = addr.wrapping_add(self.y as u16);
                 if inst != 0x99 { self.set_page_crossed(addr, addr_y, 1); }
-                self.pc += 2;
+                // self.pc += 2;
                 addr_y
             },
             AddressingMode::IndirectX => {
-                let addr = self.bus.read(self.pc).wrapping_add(self.x) as u16;
                 self.pc += 1;
+                let addr = self.bus.read(self.pc).wrapping_add(self.x) as u16;
+                // self.pc += 1;
                 self.bus.read(addr & 0xFF) as u16 | (self.bus.read(addr.wrapping_add(1) & 0xFF) as u16) * 0x100
             },
             AddressingMode::IndirectY => {
-                let addr = self.bus.read(self.pc) as u16;
                 self.pc += 1;
+                let addr = self.bus.read(self.pc) as u16;
+                // self.pc += 1;
                 ( self.bus.read(addr) as u16 | self.bus.read(addr.wrapping_add(1) & 0xFF) as u16 * 0x100 ).wrapping_add(self.y as u16)
             },
             AddressingMode::ZeropageIndexed => {
+                self.pc += 1;
                 let addr = self.bus.read(self.pc);
                 let index = if inst == 0xB6 || inst == 0x96 { self.y } else { self.x };
-                self.pc += 1;
+                // self.pc += 1;
                 addr.wrapping_add(index) as u16
             },
             AddressingMode::AbsoluteIndexed => {
+                self.pc += 2;
                 let addr = self.read_address(self.pc);
                 let index = if inst == 0xB6 || inst == 0x96 { self.y as u16 } else { self.x as u16 };
                 let value = addr.wrapping_add(index);
                 self.set_page_crossed(addr, value, 1);
-                self.pc += 2;
+                // self.pc += 2;
                 addr.wrapping_add(index)
             },
             _ => 0
@@ -187,24 +233,21 @@ impl CPU {
                 Ok(op) => op,
                 Err(_) => return false
             };
+            if self.debug { log(&format!("---- {inst:?} ----")); }
             match inst {
                 ORA => {
-                    log(&format!("opcode: ORA"));
                     self.a |= self.bus.read(value);
                     self.set_zn(self.a);
                 },
                 AND => {
-                    log(&format!("opcode: AND"));
                     self.a &= self.bus.read(value);
                     self.set_zn(self.a);
                 },
                 EOR => {
-                    log(&format!("opcode: EOR"));
                     self.a ^= self.bus.read(value);
                     self.set_zn(self.a);
                 },
                 ADC => {
-                    log(&format!("opcode: ADC"));
                     let carry = self.p & 0x1;
                     let value = self.bus.read(value);
                     let (sum, c1) = self.a.overflowing_add(value);
@@ -217,23 +260,19 @@ impl CPU {
                     self.set_zn(self.a);
                 },
                 STA => {
-                    log(&format!("opcode: STA"));
                     self.bus.write(value, self.a)
                 },
                 LDA => {
-                    log(&format!("opcode: LDA"));
                     self.a = self.bus.read(value);
                     self.set_zn(self.a);
                 },
                 CMP => {
-                    log(&format!("opcode: CMP"));
                     let value = self.bus.read(value);
                     let sum = self.a.wrapping_sub(value);
                     self.set_c((self.a >= value) as u8);
                     self.set_zn(sum);
                 },
                 SBC => {
-                    log(&format!("opcode: SBC"));
                     let value = self.bus.read(value);
                     let carry = self.p & 0x1 ^ 0x1; // NOT(c)
                     // https://github.com/rust-lang/rust/blob/cc946fcd326f7d85d4af096efdc73538622568e9/library/core/src/num/uint_macros.rs#L1538-L1544
@@ -255,7 +294,7 @@ impl CPU {
 
     fn operation2(&mut self, opcode: u8) -> bool {
         use Operation2::*;
-        if opcode & OP_MASK == 1 {
+        if opcode & OP_MASK == 2 {
             let addr_mode = (opcode & ADDR_MODE_MASK) >> ADDR_MODE_SHIFT;
             let inst = (opcode & INST_MODE_MASK) >> INST_MODE_SHIFT;
             let value = self.get_address_mode(&ADDR_2[addr_mode as usize], opcode);
@@ -263,9 +302,9 @@ impl CPU {
                 Ok(op) => op,
                 Err(_) => return false
             };
+            if self.debug { log(&format!("---- {inst:?} - {opcode:#06x} ----")); }
             match inst {
                 ASL => {
-                    log(&format!("opcode: ASL"));
                     if opcode == 0x0A {
                         self.set_c((self.a & 0x80) >> 7);
                         self.a = self.a << 1;
@@ -274,12 +313,12 @@ impl CPU {
                         let mut operand = self.bus.read(value);
                         self.set_c((operand & 0x80) >> 7);
                         operand = operand << 1;
+                        log(&format!("value: 0x{:04x} - operand: {}", value, operand));
                         self.bus.write(value, operand);
                         self.set_zn(operand);
                     }
                 },
                 ROL => {
-                    log(&format!("opcode: ROL"));
                     if opcode == 0x2A {
                         let carry = self.p & 0x1;
                         self.set_c((self.a & 0x80) >> 7);
@@ -295,7 +334,6 @@ impl CPU {
                     }
                 },
                 LSR => {
-                    log(&format!("opcode: LSR"));
                     if opcode == 0x4A {
                         self.set_c(self.a & 0x1);
                         self.a = self.a >> 1;
@@ -309,7 +347,6 @@ impl CPU {
                     }
                 },
                 ROR => {
-                    log(&format!("opcode: ROR"));
                     if opcode == 0x6A {
                         let carry = self.p & 0x1;
                         self.set_c(self.a & 0x1);
@@ -325,23 +362,19 @@ impl CPU {
                     }
                 },
                 STX => {
-                    log(&format!("opcode: STX"));
+                    log(&format!("{:#06x}", value));
                     self.bus.write(value, self.x)
                 },
                 LDX => {
-                    log(&format!("opcode: LDX"));
                     self.x = self.bus.read(value);
                     self.set_zn(self.x);
                 },
                 DEC => {
-                    log(&format!("opcode: DEC"));
                     let operand = self.bus.read(value).wrapping_sub(1);
                     self.bus.write(value, operand);
                     self.set_zn(operand);
                 },
                 INC => {
-                    log(&format!("opcode: INC"));
-                    let operand = self.bus.read(value).wrapping_sub(1);
                     let operand = self.bus.read(value).wrapping_add(1);
                     self.bus.write(value, operand);
                     self.set_zn(operand);
@@ -355,7 +388,7 @@ impl CPU {
 
     fn operation0(&mut self, opcode: u8) -> bool {
         use Operation0::*;
-        if opcode & OP_MASK == 1 {
+        if opcode & OP_MASK == 0 {
             let addr_mode = (opcode & ADDR_MODE_MASK) >> ADDR_MODE_SHIFT;
             let inst = (opcode & INST_MODE_MASK) >> INST_MODE_SHIFT;
             let value = self.get_address_mode(&ADDR_2[addr_mode as usize], opcode);
@@ -363,34 +396,29 @@ impl CPU {
                 Ok(op) => op,
                 Err(_) => return false
             };
+            if self.debug { log(&format!("---- {inst:?} - {value:#06x} ----")); }
             match inst {
                 BIT => {
-                    log(&format!("opcode: BIT"));
-                    let operand = self.bus.read(value).wrapping_sub(1);
                     let operand = self.bus.read(value);
                     self.set_n(operand & 0x80);
                     self.set_v(operand & 0x40);
                     self.set_z(if operand & self.a == 0 { 0x02 } else { 0 });
                 },
                 STY => {
-                    log(&format!("opcode: STY"));
                     self.bus.write(value, self.y);
                 },
                 LDY => {
-                    log(&format!("opcode: LDY"));
                     self.bus.write(value, self.y);
                     self.y = self.bus.read(value);
                     self.set_zn(self.y)
                 },
                 CPY => {
-                    log(&format!("opcode: CPY"));
                     let value = self.bus.read(value); 
                     let diff = self.y.wrapping_sub(value);
                     self.set_c((self.y >= value) as u8);
                     self.set_zn(diff);
                 },
                 CPX => {
-                    log(&format!("opcode: CPX"));
                     let value = self.bus.read(value); 
                     let diff = self.x.wrapping_sub(value);
                     self.set_c((self.x >= value) as u8);
@@ -409,126 +437,107 @@ impl CPU {
             Ok(i) => i,
             _ => return false
         };
+        if self.debug { log(&format!("---- {implied:?} ----")); }
         match implied {
             BRK => {
-                log(&format!("opcode: BRK | cycle: {} | acc: {} | x: {} | s: {} | p: {} | pc: {} ", self.cycle, self.a, self.x, self.s, self.p, self.pc));
-                // self.p |= 0x10;
-                self.p |= 0x04;
+                //self.p |= 0x04; // 0000 0100
+                self.push_stack((self.pc >> 8) as u8);
+                self.push_stack(self.pc as u8);
+                self.push_stack(self.p);
+                self.pc = self.read_address(IRQ_VECTOR);
+                self.p |= 0x10; // 0001 0000
+                // self.p |= 0x04; // 0000 0100
             },
             TXA => {
-                log(&format!("opcode: TXA"));
                 self.a = self.x;
                 self.set_zn(self.a);
             },
             TAX => {
-                log(&format!("opcode: TAX"));
                 self.x = self.a;
                 self.set_zn(self.x);
             },
             TXS => {
-                log(&format!("opcode: TXS"));
                 self.s = self.x;
             },
             DEX => {
-                log(&format!("opcode: DEX"));
                 self.x -= 1;
                 self.set_zn(self.x);
             },
             TSX => {
-                log(&format!("opcode: TSX"));
                 self.x = self.s;
                 self.set_zn(self.x);
             },
             RTI => {
-                log(&format!("opcode: RTI"));
                 self.p = self.pull_stack() & 0xCF;
                 self.pc = self.pull_stack() as u16 | ((self.pull_stack() as u16) * 0x100);
             },
             RTS => {
-                log(&format!("opcode: RTS"));
                 self.pc = self.pull_stack() as u16 | self.pull_stack() as u16 * 0x100;
                 self.pc += 1;
             },
             PHP => {
-                log(&format!("opcode: PHP"));
                 self.push_stack(self.p | 0x30);
             },
             CLC => {
-                log(&format!("opcode: CLC"));
                 self.p &= 0xFE;
             },
             PLP => {
-                log(&format!("opcode: PLP"));
                 self.p = self.pull_stack();
             },
             SEC => {
-                log(&format!("opcode: SEC"));
                 self.p |= 0x01;
             },
             PHA => {
-                log(&format!("opcode: PHA"));
                 self.push_stack(self.a);
             },
             CLI => {
-                log(&format!("opcode: CLI"));
                 self.p &= 0xFB;
             },
             PLA => {
-                log(&format!("opcode: PLA"));
                 self.a = self.pull_stack();
                 self.set_zn(self.a);
             },
             SEI => {
-                log(&format!("opcode: SEI"));
                 self.p |= 0x04;
             },
             DEY => {
-                log(&format!("opcode: DEY"));
                 self.y -= 1;
                 self.set_zn(self.y);
             },
             TYA => {
-                log(&format!("opcode: TYA"));
                 self.a = self.y;
                 self.set_zn(self.a);
             },
             TAY => {
-                log(&format!("opcode: TAY"));
                 self.y = self.a;
                 self.set_zn(self.y);
             },
             CLV => {
-                log(&format!("opcode: CLV"));
                 self.p &= 0x40;
             },
             INY => {
-                log(&format!("opcode: INY"));
                 self.y += 1;
                 self.set_zn(self.y)
             },
             CLD => {
-                log(&format!("opcode: CLD"));
+                // 11110111 
                 self.p &= 0xF7;
             },
             INX => {
-                log(&format!("opcode: INX"));
                 self.x += 1;
                 self.set_zn(self.x);
             },
             SED => {
-                log(&format!("opcode: SED"));
                 self.p |= 0x08;
             },
-            NOP => {
-                log(&format!("opcode: NOP"));
-                todo!()
-            },
+            NOP => (), // Increments program counter.
         }
         true
     }
 
     fn set_zn(&mut self, val: u8) {
         if val == 0 {
+            // 0x02 => 0000 0010
             self.p |= 0x02;
         }
         if val & 0x80 == 0x80 {
