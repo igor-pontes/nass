@@ -42,9 +42,12 @@ impl Mapper for NROM {
         }
     }
     fn write_prg(&mut self, addr: u16, val: u8) { 
-        log("HELLO.");
+        log(&format!("[NROM] write_prg | addr: {:#06x} | val: {:#06x}", addr, val));
         self.prg_ram[(addr - 0x6000) as usize] = val; 
     }
 
-    fn write_chr(&mut self, addr: u16, val: u8) { log("Write to CHR RAM."); panic!() }
+    fn write_chr(&mut self, addr: u16, val: u8) { 
+        // log(&format!("[NROM] write_chr (ignored) | addr: {:#06x} | val: {:#06x}", addr, val));
+        ()
+    }
 }

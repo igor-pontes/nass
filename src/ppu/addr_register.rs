@@ -66,11 +66,9 @@ impl AddrRegister {
     pub fn increment(&mut self, inc: u8) {
         let lo = self.value.1;
         self.value.1 = self.value.1.wrapping_add(inc);
-
         if lo > self.value.1 {
             self.value.0 = self.value.0.wrapping_add(1);
         }
-
         if self.get() > 0x3FFF {
             self.set(self.get() & 0x3FFF);
         }
@@ -89,6 +87,6 @@ impl AddrRegister {
     }
 
     pub fn get(&self) -> u16 {
-        ((self.value.0 as u16) << 8) | ( self.value.0 as u16 )
+        ((self.value.0 as u16) << 8) | ( self.value.1 as u16 )
     }
 }

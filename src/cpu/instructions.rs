@@ -75,8 +75,8 @@ pub enum ImmediateOps {
 #[repr(u8)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq, TryFromPrimitive)]
 pub enum AbsoluteYOps  {
-    TAS = 0x9B,
     LAS = 0xBB,
+    TAS = 0x9B,
     SHA = 0x9F,
 }
 
@@ -103,6 +103,8 @@ pub enum AddressingMode {
 #[derive(Clone, Copy, Debug, Eq, PartialEq, TryFromPrimitive)]
 pub enum Operation0 {
     BIT = 0x1,
+    JMP = 0x2,
+    _JMP = 0x3,
     STY = 0x4, // or SHY
     LDY = 0x5,
     CPY = 0x6,

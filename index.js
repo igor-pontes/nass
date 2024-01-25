@@ -4,7 +4,6 @@ await init();
 
 const canvas = document.getElementById("nass-canvas");
 const ctx = canvas.getContext('2d');
-
 const height = 256;
 const width = 240;
 
@@ -43,8 +42,12 @@ function getFile() {
   loadFile(file).then(rom => { 
     const step = disassemble(rom);
     const fn = () => {
+      // drawCells();
+      // const startTime = performance.now();
       step();
-      drawCells();
+      console.log("---- test ----");
+      // const endTime = performance.now();
+      // console.log(endTime - startTime);
       requestAnimationFrame(fn); 
     }
     requestAnimationFrame(fn);
