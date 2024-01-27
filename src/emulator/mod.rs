@@ -49,7 +49,7 @@ impl Emulator {
         self.cpu.reset();
     }
 
-    pub fn get_frame(&self) -> *const u8 {
+    pub fn get_frame_pointer(&self) -> *const u8 {
         self.ppu.borrow().frame.frame.as_ptr()
     }
 
