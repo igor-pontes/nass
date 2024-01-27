@@ -1,5 +1,4 @@
 use js_sys::{ ArrayBuffer, Uint8Array };
-use wasm_bindgen::{closure::Closure, JsValue};
 
 mod ppu;
 mod cpu;
@@ -7,11 +6,13 @@ mod mapper;
 mod frame;
 mod emulator;
 use { 
-    // core::cell::RefCell,
+    std::cell::RefCell,
     crate::emulator::*, 
     wasm_bindgen::prelude::*, 
     js_sys
 };
+
+thread_local!{ static EMULATOR: RefCell<Option<Emulator>> = RefCell::new(None) }
 
 #[wasm_bindgen]
 extern {
@@ -20,12 +21,25 @@ extern {
 }
 
 #[wasm_bindgen]
-pub fn disassemble(rom: ArrayBuffer) -> JsValue {
+pub fn disassemble(rom: ArrayBuffer) {
     let array = Uint8Array::new_with_byte_offset(&rom, 0).to_vec();
-    let mut emulator = Emulator::new(&array);
-    emulator.reset();
-    let cb = Closure::wrap(Box::new(move || { emulator.step(); }) as Box<dyn FnMut()>);
-    let ret = cb.as_ref().clone();
-    cb.forget();
-    ret
+    EMULATOR.set(Some(Emulator::new(&array)));
+    EMULATOR.with_borrow_mut(|e| e.as_mut().and_then(|e| Some(e.reset())));
+}
+
+#[wasm_bindgen]
+pub fn step() {
+    EMULATOR.with_borrow_mut(|e| match e {
+        Some(e) => e.step(),
+        None => { log("Emulator not initialized."); }
+    });
+}
+
+#[wasm_bindgen]
+pub fn get_frame() -> *const u8 {
+    let pointer = EMULATOR.with_borrow_mut(|e| match e {
+        Some(e) => e.get_frame(),
+        None => { log("Emulator not initialized."); panic!(); }
+    });
+    pointer
 }

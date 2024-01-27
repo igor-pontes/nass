@@ -31,8 +31,8 @@ pub const INST_MODE_SHIFT: u8 = 0x05; // We only care about first 3 digits
 #[derive(Clone, Copy, Debug, Eq, PartialEq, TryFromPrimitive)]
 pub enum ImplicitOps {
     BRK = 0x00,
-    RTI = 0x04,
-    RTS = 0x06,
+    RTI = 0x40,
+    RTS = 0x60,
     PHP = 0x08,
     CLC = 0x18,
     PLP = 0x28,

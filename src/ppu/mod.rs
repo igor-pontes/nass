@@ -39,7 +39,7 @@ pub struct PPU {
     scanline: u16,
     pub cycle: usize,
     odd_frame: bool,
-    frame: Frame
+    pub frame: Frame
 }
 
 impl PPU {
@@ -72,7 +72,6 @@ impl PPU {
             261 => { // Pre-render
                 if self.cycle == 1 { 
                     self.status.update(self.status.bits() & 0x7F);
-                    (*interrupt) = Interrupt::DISABLED; 
                 }
                 if (self.cycle == 339 && self.odd_frame) || self.cycle == 340 { 
                     self.scanline = 0; self.cycle = 0; 
@@ -81,18 +80,21 @@ impl PPU {
             },
             0..=239 => { // Render
                 if self.mask.show_background()   {
-                    log("------- Background enabled. -------");
+                    // log("------- Background enabled. -------");
                     let show_leftmost = (((self.mask.show_background_leftmost() as u8) ^ (self.cycle <= 8) as u8)) != 0;
-                    if self.cycle != 0 && !show_leftmost || self.cycle > 8 {
+                    if (self.cycle != 0 && !show_leftmost) || self.cycle > 8 {
                         let v = self.addr.get();
                         let fine_y = v & 0x7000 >> 12;
 
                         let tile_addr = 0x2000 | (v & 0x0FFF);
-                        let tile = self.vram[(tile_addr - 0x2000) as usize];
+                        let tile = self.vram[self.mirror_vram_addr(tile_addr) as usize];
 
                         // https://www.nesdev.org/wiki/PPU_attribute_tables
                         let attr_addr = 0x23C0 | (v & 0x0C00) | ((v >> 4) & 0x38) | ((v >> 2) & 0x07);
-                        let attr_data = self.vram[(attr_addr - 0x2000) as usize];
+
+                        let attr_data = self.vram[self.mirror_vram_addr(attr_addr) as usize];
+
+                        // log("still working.");
 
                         let half_pattern_table = if self.ctrl.get_background_pattern_addr() { 0x1000 } else { 0 };
                         let color_addr_0 = half_pattern_table | (tile as u16) << 4 | 1 << 3 | fine_y;
@@ -105,7 +107,7 @@ impl PPU {
                         let tile_row = ((v & 0x3e0) >> 5) as u8;
                         let quadrant = (tile_row & 0x2) + ((tile_column & 0x2) >> 1);
                         let attr_color = (attr_data & (0x3 << (quadrant * 2))) >> (quadrant * 2);
-                        log(&format!("attr_color: {}; color_tile: {}", attr_color, color_tile));
+                        // log(&format!("attr_color: {}; color_tile: {}", attr_color, color_tile));
                         color_bg = (0x10 | attr_color | color_tile) as u8;
 
                         log(&format!("PPU color: {}", color_bg));
@@ -119,31 +121,30 @@ impl PPU {
                                self.addr.coarse_x_increment();
                            }
                         }
+                        // log(&format!("No problems here."));
                     }
                 }
 
                 if self.mask.show_sprite() {
                     let show_leftmost = (self.mask.show_sprite_leftmost() as u8 ^ (self.cycle <= 8) as u8) != 0;
-                    if self.cycle != 0 && !show_leftmost || self.cycle > 8 {
+                    if (self.cycle != 0 && !show_leftmost) || self.cycle > 8 {
                         // TODO
                     }
                 }
 
-                // Set Frame's pixel
-                // log(&color::to_hex(color_bg & 0xFF));
-                // self.frame.set_pixel(0, 0, color::COLORS[(color_bg & 0xFF) as usize])
+                self.frame.set_pixel(color_bg)
             }
             240 => {
                 // Post-render
                 // self.frame.set_pixel(0, 0, color::COLORS[(color_bg & 0xFF) as usize])
+                log(&format!("[PPU] frame_x: {} | frame_y: {}", self.frame.x, self.frame.y));
             }
             241..=u16::MAX => {
                 // Vertical Blank Lines
                 if self.scanline == 241 && self.cycle == 1 { 
                     self.status.update(self.status.bits() | 0x80);
                     if self.ctrl.generate_nmi() {
-                        // log("----- NMI -----");
-                        // (*interrupt) = Interrupt::NMI; 
+                        (*interrupt) = Interrupt::NMI; 
                     }
                 }
             }

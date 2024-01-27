@@ -16,6 +16,7 @@ pub struct BUS {
     ram: [u8; RAM_SIZE],
     pub mapper: Rc<RefCell<Box<dyn Mapper>>>,
     pub ppu: Rc<RefCell<PPU>>,
+    pub suspend: bool,
 }
 
 impl BUS {
@@ -25,6 +26,7 @@ impl BUS {
             ram: [0; RAM_SIZE],
             mapper,
             ppu,
+            suspend: false
         }
     }
 
@@ -43,6 +45,9 @@ impl BUS {
 
             0x2008..=0x3FFF => self.write(addr & 0x2007, value),
             0x4014 => {
+                log("0x4014");
+                panic!();
+                self.suspend = true;
                 let addr = (value as u16) << 8;
                 self.ppu.borrow_mut().write_to_oam_addr(0);
                 for i in 0..=0xFF {
@@ -56,6 +61,10 @@ impl BUS {
     }
 
     pub fn read(&mut self, addr: u16) -> u8 { 
+        if addr == 0x4d06 {
+            log(&format!("CPU CALLED THIS > ADDR: {:#06x}", addr));
+            panic!();
+        } 
         match addr {
             0x0000..=0x1FFF => self.ram[addr as usize & 0x07FF],
             0x2000 | 0x2001 | 0x2003 | 0x2005 | 0x2006 | 0x4014 => {

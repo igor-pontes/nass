@@ -23,10 +23,8 @@ pub enum Interrupt {
 
 pub struct Emulator {
     cpu: CPU,
-    ppu: Rc<RefCell<PPU>>,
-    mapper: Rc<RefCell<Box<dyn Mapper>>>,
+    pub ppu: Rc<RefCell<PPU>>,
     interrupt: Interrupt,
-    frame: Vec<String>,
     cycles: usize,
     debug_times: u8,
 }
@@ -41,24 +39,33 @@ impl Emulator {
         Emulator { 
             cpu: CPU::new(BUS::new(mapper.clone(), ppu.clone())),
             ppu,
-            mapper,
             interrupt: Interrupt::DISABLED,
-            frame: Vec::new(),
             cycles: 0,
-            debug_times: 7
+            debug_times: 20,
         }
     }
 
     pub fn reset(&mut self) {
         self.cpu.reset();
-        // log(&format!("EMULATOR_PPU: {:p}", self.ppu.as_ptr()));
+    }
+
+    pub fn get_frame(&self) -> *const u8 {
+        self.ppu.borrow().frame.frame.as_ptr()
     }
 
     pub fn step(&mut self) {
         while self.cycles <= CYCLES_PER_FRAME {
             if self.debug_times == 0 { 
-                log("--- DEBUG ENDED ---");
+                log("--- DEBUG ENDED. ---");
                 panic!(); 
+            }
+            if self.cpu.bus.suspend { 
+                if self.cpu.odd_cycle {
+                    self.cpu.cycle += 513;
+                } else {
+                    self.cpu.cycle += 514;
+                }
+                self.cpu.bus.suspend = false;
             }
             self.cpu.step(&mut self.interrupt);
             self.ppu.borrow_mut().step(&mut self.interrupt); 

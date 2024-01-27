@@ -10,7 +10,8 @@ extern {
 
 #[derive(Debug)]
 pub struct NROM {
-    prg_ram: [u8; 0x1FFF],
+    prg_ram: [u8; 0x2000],
+    chr_ram: [u8; 0x2000],
     prg_rom: Vec<u8>, 
     chr_rom: Vec<u8>,
     mirroring: Mirroring,
@@ -19,7 +20,8 @@ pub struct NROM {
 impl NROM {
     pub fn new(prg_rom: Vec<u8>, chr_rom: Vec<u8>, mirroring: Mirroring) -> Self { 
         NROM {
-            prg_ram: [0; 0x1FFF],
+            prg_ram: [0; 0x2000],
+            chr_ram: [0; 0x2000],
             prg_rom,
             chr_rom,
             mirroring,
@@ -35,10 +37,9 @@ impl Mapper for NROM {
     fn read_prg(&self, addr: u16) -> u8 { 
         match addr {
             0x6000..=0x7FFF => { self.prg_ram[(addr - 0x6000) as usize] },
-            0x8000..=0xFFFF => { 
-                self.prg_rom[(addr - 0x8000) as usize] 
-            },
-            _ => { log("NROM: Trying to access 0x4020 - 0x6000."); panic!(); }
+            0x8000..=0xFFFF => { self.prg_rom[(addr - 0x8000) as usize] },
+            // _ => { log(&format!("NROM: Trying to access 0x4020 - 0x6000. Address is {addr:#06x}.")); panic!(); }
+            _ => { log(&format!("NROM: Trying to access 0x4020 - 0x6000. Address is {addr:#06x}.")); 0 }
         }
     }
     fn write_prg(&mut self, addr: u16, val: u8) { 
@@ -47,7 +48,7 @@ impl Mapper for NROM {
     }
 
     fn write_chr(&mut self, addr: u16, val: u8) { 
-        // log(&format!("[NROM] write_chr (ignored) | addr: {:#06x} | val: {:#06x}", addr, val));
-        ()
+        // log(&format!("[NROM] write_chr | addr: {:#06x} | val: {:#06x}", addr, val));
+        self.chr_ram[(addr) as usize] = val;
     }
 }

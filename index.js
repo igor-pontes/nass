@@ -1,30 +1,39 @@
-import init, { disassemble } from "./pkg/nass.js";
+import init, { disassemble, step, get_frame } from "./pkg/nass.js";
 
-await init();
+const COLORS  = [
+    "#666666", "#002a88", "#1412a7", "#3b00a4", "#5c007e", "#6e0040", "#6c0600", "#561d00",
+    "#333500", "#0b4800", "#005200", "#004f08", "#00404d", "#000000", "#000000", "#000000",
+    "#adadad", "#155fd9", "#4240ff", "#7527fe", "#a01acc", "#b71e7b", "#b53120", "#994e00",
+    "#6b6d00", "#388700", "#0c9300", "#008f32", "#007c8d", "#000000", "#000000", "#000000",
+    "#fffeff", "#64b0ff", "#9290ff", "#c676ff", "#f36aff", "#fe6ecc", "#fe8170", "#ea9e22",
+    "#bcbe00", "#88d800", "#5ce430", "#45e082", "#48cdde", "#4f4f4f", "#000000", "#000000",
+    "#fffeff", "#c0dfff", "#d3d2ff", "#e8c8ff", "#fbc2ff", "#fec4ea", "#feccc5", "#f7d8a5",
+    "#e4e594", "#cfef96", "#bdf4ab", "#b3f3cc", "#b5ebf2", "#b8b8b8", "#000000", "#000000",
+];
+
+const PIXEL_SIZE = 8;
+const WIDTH = 256;
+const HEIGHT = 240;
+
+const wasm = await init();
+let buffer = new Uint8Array();
+let frame_pointer;
 
 const canvas = document.getElementById("nass-canvas");
-const ctx = canvas.getContext('2d');
-const height = 256;
-const width = 240;
 
-canvas.height = 256;
-canvas.width = 240;
+canvas.width = WIDTH * 2;
+canvas.height = HEIGHT * 2;
+
+const ctx = canvas.getContext('2d');
 
 document.getElementById("rom-input").onchange = getFile;
 
 const drawCells = () => {
-  ctx.beginPath();
-  for (let row = 0; row < height; row++) {
-    for (let col = 0; col < width; col++) {
-
-      ctx.fillStyle = "#000000";
-
-      ctx.fillRect(
-        col,
-        row,
-        1,
-        1
-      );
+  for (let row = 0; row < HEIGHT; row++) {
+    for (let col = 0; col < WIDTH; col++) {
+      const color = COLORS[buffer[frame_pointer + HEIGHT * row + col]];
+      ctx.fillStyle = color;
+      ctx.fillRect(col * PIXEL_SIZE, row * PIXEL_SIZE, PIXEL_SIZE, PIXEL_SIZE);
     }
   }
 }
@@ -40,14 +49,12 @@ function getFile() {
     })
   }
   loadFile(file).then(rom => { 
-    const step = disassemble(rom);
+    disassemble(rom);
+    buffer = new Uint8Array(wasm.memory.buffer);
+    frame_pointer = get_frame();
     const fn = () => {
-      // drawCells();
-      // const startTime = performance.now();
+      drawCells();
       step();
-      console.log("---- test ----");
-      // const endTime = performance.now();
-      // console.log(endTime - startTime);
       requestAnimationFrame(fn); 
     }
     requestAnimationFrame(fn);
