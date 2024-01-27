@@ -61,8 +61,8 @@ export function step() {
 /**
 * @returns {number}
 */
-export function get_frame() {
-    const ret = wasm.get_frame();
+export function get_frame_pointer() {
+    const ret = wasm.get_frame_pointer();
     return ret;
 }
 

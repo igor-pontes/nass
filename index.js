@@ -1,4 +1,4 @@
-import init, { disassemble, step, get_frame } from "./pkg/nass.js";
+import init, { disassemble, step, get_frame_pointer } from "./pkg/nass.js";
 
 const COLORS  = [
     "#666666", "#002a88", "#1412a7", "#3b00a4", "#5c007e", "#6e0040", "#6c0600", "#561d00",
@@ -51,7 +51,7 @@ function getFile() {
   loadFile(file).then(rom => { 
     disassemble(rom);
     buffer = new Uint8Array(wasm.memory.buffer);
-    frame_pointer = get_frame();
+    frame_pointer = get_frame_pointer();
     const fn = () => {
       drawCells();
       step();

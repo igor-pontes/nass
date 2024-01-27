@@ -36,7 +36,7 @@ pub fn step() {
 }
 
 #[wasm_bindgen]
-pub fn get_frame() -> *const u8 {
+pub fn get_frame_pointer() -> *const u8 {
     let pointer = EMULATOR.with_borrow_mut(|e| match e {
         Some(e) => e.get_frame_pointer(),
         None => { log("Emulator not initialized."); panic!(); }
