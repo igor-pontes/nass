@@ -412,14 +412,11 @@ impl CPU {
                     self.set_v(operand & 0x40);
                     self.set_z((operand & self.a) == 0);
                 },
-                JMP => {
+                JMP | _JMP => {
                     // JMP == _JMP
                     // TODO: http://www.6502.org/users/obelisk/6502/reference.html#JMP
                     self.pc = value-1;
-                }
-                _JMP => {
-                    self.pc = value-1;
-                }
+                },
                 STY => {
                     self.bus.write(value, self.y);
                 },
