@@ -45,8 +45,8 @@ impl BUS {
 
             0x2008..=0x3FFF => self.write(addr & 0x2007, value),
             0x4014 => {
-                log("0x4014");
-                panic!();
+                // log("0x4014");
+                // panic!();
                 self.suspend = true;
                 let addr = (value as u16) << 8;
                 self.ppu.borrow_mut().write_to_oam_addr(0);

@@ -1,11 +1,9 @@
 use std::rc::Rc;
 use std::cell::RefCell;
-mod color;
 mod addr_register;
 mod control_register;
 mod ppu_mask;
 mod ppu_status;
-pub use self::color::*;
 use crate::frame::Frame;
 use crate::Interrupt;
 use crate::mapper::*;
@@ -110,16 +108,16 @@ impl PPU {
                         // log(&format!("attr_color: {}; color_tile: {}", attr_color, color_tile));
                         color_bg = (0x10 | attr_color | color_tile) as u8;
 
-                        log(&format!("PPU color: {}", color_bg));
+                        // log(&format!("PPU color: {:#010b}", color_bg));
 
                         // Increment address
                         if self.cycle % 8 == 0 {
-                           if self.cycle == 256 {
-                               self.addr.y_increment();
-                               self.addr.coarse_x_increment();
-                           } else {
-                               self.addr.coarse_x_increment();
-                           }
+                            if self.cycle == 256 {
+                                self.addr.y_increment();
+                                self.addr.coarse_x_increment();
+                            } else {
+                                self.addr.coarse_x_increment();
+                            }
                         }
                         // log(&format!("No problems here."));
                     }
@@ -131,13 +129,16 @@ impl PPU {
                         // TODO
                     }
                 }
-
-                self.frame.set_pixel(color_bg)
+                if self.cycle <= 256 {
+                    self.frame.set_pixel(color_bg)
+                }
             }
             240 => {
                 // Post-render
                 // self.frame.set_pixel(0, 0, color::COLORS[(color_bg & 0xFF) as usize])
-                log(&format!("[PPU] frame_x: {} | frame_y: {}", self.frame.x, self.frame.y));
+                if self.cycle == 0 {
+                    // log(&format!("[PPU] frame_x: {} | frame_y: {}", self.frame.x, self.frame.y));
+                }
             }
             241..=u16::MAX => {
                 // Vertical Blank Lines

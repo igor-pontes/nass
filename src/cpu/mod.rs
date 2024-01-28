@@ -27,7 +27,7 @@ pub struct CPU {
     pub bus: BUS,
     pub odd_cycle: bool,
     // pub skip_cycles: usize,
-    debug: bool
+    pub debug: bool,
 }
 
 impl CPU {
@@ -38,7 +38,7 @@ impl CPU {
             y: 0,
             pc: 0,
             debug: false,
-            s: 0xFD,
+            s: 0xFF,
             p: 0x34, // 0011 0100 (IRQ disabled)
             bus,
             cycle: 0,
@@ -49,14 +49,11 @@ impl CPU {
 
     pub fn step(&mut self, interrupt: &mut Interrupt) {
 
-        if self.cycle % 2 == 0 && self.odd_cycle == true { 
-            self.odd_cycle = true; 
-        } else { 
-            self.odd_cycle = false; 
-        }
+        // if self.pc == 0x828c { log("WORKING?."); panic!(""); }
 
         if self.cycle > 0 {
             self.cycle -= 1;
+            self.odd_cycle = !self.odd_cycle;
             return;
         }
 
@@ -77,6 +74,7 @@ impl CPU {
 
         self.pc += 1;
 
+        self.odd_cycle = !self.odd_cycle;
     }
 
     pub fn reset(&mut self) {
@@ -89,15 +87,10 @@ impl CPU {
         self.pc = self.read_address(RESET_VECTOR);
     }
 
-    // TODO
-    pub fn interrupt(&mut self, interrupt: &Interrupt) {
-        unimplemented!();
-    }
-
     fn execute_nmi(&mut self) {
-        self.push_stack(self.p);
-        self.push_stack((self.pc & 0x00FF) as u8);
         self.push_stack(((self.pc & 0xFF00) >> 8) as u8);
+        self.push_stack((self.pc & 0x00FF) as u8);
+        self.push_stack(self.p);
         self.pc = self.read_address(NMI_VECTOR);
     }
 
@@ -146,15 +139,12 @@ impl CPU {
 
     fn jsr(&mut self, opcode: u8) -> bool {
         if opcode == 0x20 {
-            // let temp = self.pc;
-            let return_addr = self.pc+2;
-            self.push_stack((return_addr & 0x00FF) as u8);
+            let return_addr = self.pc+3;
             self.push_stack(((return_addr & 0xFF00) >> 8) as u8);
+            self.push_stack((return_addr & 0x00FF) as u8);
             let value = self.get_address_mode(&AddressingMode::Absolute, opcode);
             if self.debug { log(&format!("---- JSR | VALUE: {value:#06x} ----")); }
             self.pc = value-1;
-            // if temp == 0x8051 { log(&format!("[JSR] new_pc: {:#04x} | status: {:#010b} | Y: {:#04x} | X: {:#04x} | SP: {:#04X}", self.pc + 1, self.p, self.y, self.x, self.s)); }
-            // if temp == 0x8054 { log(&format!("[JSR] new_pc: {:#04x} | status: {:#010b} | Y: {:#04x} | X: {:#04x} | SP: {:#04X}", self.pc + 1, self.p, self.y, self.x, self.s)); panic!(); }
             true
         } else {
             false
@@ -241,6 +231,7 @@ impl CPU {
     fn operation1(&mut self, opcode: u8) -> bool {
         use Operation1::*;
         if opcode & OP_MASK == 1 {
+            let temp = self.pc;
             let addr_mode = (opcode & ADDR_MODE_MASK) >> ADDR_MODE_SHIFT;
             let inst = (opcode & INST_MODE_MASK) >> INST_MODE_SHIFT;
             let value = self.get_address_mode(&ADDR_1[addr_mode as usize], opcode);
@@ -248,7 +239,7 @@ impl CPU {
                 Ok(op) => op,
                 Err(_) => return false
             };
-            if self.debug { log(&format!("---- {inst:?} | VALUE(addr): {value:#06x} ----")); }
+            if self.debug { log(&format!("---- {inst:?} [{temp:#06x}] | VALUE(addr): {value:#06x} ----")); }
             match inst {
                 ORA => {
                     self.a |= self.bus.read(value);
@@ -312,6 +303,7 @@ impl CPU {
     fn operation2(&mut self, opcode: u8) -> bool {
         use Operation2::*;
         if opcode & OP_MASK == 2 {
+            let temp = self.pc;
             let addr_mode = (opcode & ADDR_MODE_MASK) >> ADDR_MODE_SHIFT;
             let inst = (opcode & INST_MODE_MASK) >> INST_MODE_SHIFT;
             let value = self.get_address_mode(&ADDR_2[addr_mode as usize], opcode);
@@ -319,7 +311,7 @@ impl CPU {
                 Ok(op) => op,
                 Err(_) => return false
             };
-            if self.debug { log(&format!("---- {inst:?} | VALUE: {value:#06x} ----")); }
+            if self.debug { log(&format!("---- {inst:?} [{temp:#06x}] | VALUE(addr): {value:#06x} ----")); }
             match inst {
                 ASL => {
                     if opcode == 0x0A {
@@ -404,6 +396,7 @@ impl CPU {
     fn operation0(&mut self, opcode: u8) -> bool {
         use Operation0::*;
         if opcode & OP_MASK == 0 {
+            let temp = self.pc;
             let addr_mode = (opcode & ADDR_MODE_MASK) >> ADDR_MODE_SHIFT;
             let inst = (opcode & INST_MODE_MASK) >> INST_MODE_SHIFT;
             let value = self.get_address_mode(&ADDR_2[addr_mode as usize], opcode);
@@ -411,10 +404,9 @@ impl CPU {
                 Ok(op) => op,
                 Err(_) => return false
             };
-            if self.debug { log(&format!("---- {inst:?} | VALUE: {value:#06x} ----")); }
+            if self.debug { log(&format!("---- {inst:?} [{temp:#06x}] | VALUE(addr): {value:#06x} ----")); }
             match inst {
                 BIT => {
-                    if value == 0x4d06 { log(&format!("---- {inst:?} | VALUE(addr): {value:#06x} ----")); panic!(""); }
                     let operand = self.bus.read(value);
                     self.set_n(if operand & 0x80 > 0 { true } else { false });
                     self.set_v(operand & 0x40);
@@ -432,19 +424,16 @@ impl CPU {
                     self.bus.write(value, self.y);
                 },
                 LDY => {
-                    if value == 0x4d06 { log(&format!("---- {inst:?} | VALUE(addr): {value:#06x} ----")); panic!(""); }
                     self.y = self.bus.read(value);
                     self.set_zn(self.y)
                 },
                 CPY => {
-                    if value == 0x4d06 { log(&format!("---- {inst:?} | VALUE(addr): {value:#06x} ----")); panic!(""); }
                     let value = self.bus.read(value); 
                     let diff = self.y.wrapping_sub(value);
                     self.set_c(self.y >= value);
                     self.set_zn(diff);
                 },
                 CPX => {
-                    if value == 0x4d06 { log(&format!("---- {inst:?} | VALUE(addr): {value:#06x} ----")); panic!(""); }
                     let value = self.bus.read(value); 
                     let diff = self.x.wrapping_sub(value);
                     self.set_c(self.x >= value);
@@ -458,20 +447,21 @@ impl CPU {
     }
 
     fn execute_implied(&mut self, opcode: u8) -> bool {
+        let temp = self.pc;
         use ImplicitOps::*;
         let implied = match ImplicitOps::try_from(opcode) {
             Ok(i) => i,
             _ => return false
         };
-        if self.debug { log(&format!("---- {implied:?} ----")); }
+        if self.debug { log(&format!("---- {implied:?} [{temp:#06x}] ----")); }
         match implied {
             BRK => {
                 let ret_addr = self.pc + 2;
-                self.push_stack(ret_addr as u8);
-                self.push_stack((ret_addr >> 8) as u8);
-                // The status register will be pushed to the stack with the break flag set to 1.
+                self.push_stack((ret_addr & 0xFF00 >> 8) as u8);
+                self.push_stack((ret_addr & 0x00FF) as u8);
                 self.push_stack(self.p | 0x10);
-                self.pc = self.read_address(IRQ_VECTOR);
+                // The status register will be pushed to the stack with the break flag set to 1.
+                self.pc = self.read_address(IRQ_VECTOR)-1;
                 self.p |= 0x04; 
             },
             TXA => {
@@ -486,7 +476,6 @@ impl CPU {
                 self.s = self.x;
             },
             DEX => {
-                // if self.pc == 0x81bd { log(&format!("---- {implied:?} | X: {:#04x} | Y: {:#04x} | PC: {:#06x} | status: {:#010b} | sp: {:#06x} ----", self.x, self.y, self.pc, self.p, self.s)); }
                 self.x -= 1;
                 self.set_zn(self.x);
             },
@@ -495,13 +484,12 @@ impl CPU {
                 self.set_zn(self.x);
             },
             RTI => {
-                // if self.pc == 0x81a6 { log(&format!("---- SP: {:#06x} | VALUE(addr): {:#06x} ----", self.s, self.pc)); panic!(""); }
-                self.p = self.pull_stack() & 0xCF;
-                self.pc = (self.pull_stack() as u16 * 0x100 | ((self.pull_stack() as u16))) - 1;
+                self.p = self.pull_stack();
+                self.pc = ((self.pull_stack() as u16) | ((self.pull_stack() as u16) * 0x100)) - 1;
+                // if temp == 0x81a6 { log(&format!("SP: {:#04x} | A: {:#06x} | X: {:#06x} | Y: {:#06x} | NEW_PC: {:#06x} | S: {:#010b}", self.s, self.a, self.x, self.y, self.pc + 1, self.p)); panic!(); }
             },
             RTS => {
-                if self.debug { log(&format!("---- [{implied:?}] | X: {:#04x} | Y: {:#04x} | PC: {:#06x} | status: {:#010b} | sp: {:#06x} ----", self.x, self.y, self.pc, self.p, self.s)); panic!(); } 
-                self.pc = self.pull_stack() as u16 * 0x100 | self.pull_stack() as u16;
+                self.pc = ((self.pull_stack() as u16) | (self.pull_stack() as u16 * 0x100)) - 1;
             },
             PHP => {
                 self.push_stack(self.p | 0x30);
@@ -526,6 +514,7 @@ impl CPU {
                 self.set_zn(self.a);
             },
             SEI => {
+                // Set the interrupt disable flag to one.
                 self.p |= 0x04;
             },
             DEY => {
@@ -537,7 +526,6 @@ impl CPU {
                 self.set_zn(self.a);
             },
             TAY => {
-                // if self.pc == 0x81b1 { log(&format!("---- {implied:?} ----")); }
                 self.y = self.a;
                 self.set_zn(self.y);
             },
@@ -545,7 +533,6 @@ impl CPU {
                 self.p &= 0x40;
             },
             INY => {
-                // if self.pc == 0x81c6 { log(&format!("---- {implied:?} ----")); }
                 self.y += 1;
                 self.set_zn(self.y)
             },

@@ -23,10 +23,10 @@ pub enum Interrupt {
 
 pub struct Emulator {
     cpu: CPU,
-    pub ppu: Rc<RefCell<PPU>>,
+    ppu: Rc<RefCell<PPU>>,
     interrupt: Interrupt,
     cycles: usize,
-    debug_times: u8,
+    // debug_times: u8,
 }
 
 impl Emulator {
@@ -41,7 +41,7 @@ impl Emulator {
             ppu,
             interrupt: Interrupt::DISABLED,
             cycles: 0,
-            debug_times: 20,
+            // debug_times: 20,
         }
     }
 
@@ -55,10 +55,10 @@ impl Emulator {
 
     pub fn step(&mut self) {
         while self.cycles <= CYCLES_PER_FRAME {
-            if self.debug_times == 0 { 
-                log("--- DEBUG ENDED. ---");
-                panic!(); 
-            }
+            // if self.debug_times == 0 { 
+            //     log("--- DEBUG ENDED. ---");
+            //     panic!(); 
+            // }
             if self.cpu.bus.suspend { 
                 if self.cpu.odd_cycle {
                     self.cpu.cycle += 513;
@@ -72,7 +72,9 @@ impl Emulator {
             self.ppu.borrow_mut().step(&mut self.interrupt); 
             self.ppu.borrow_mut().step(&mut self.interrupt); 
             if self.cycles == CYCLES_PER_FRAME { 
-                self.debug_times -= 1; self.cycles = 0; break; 
+                // self.debug_times -= 1; 
+                self.cycles = 0; 
+                break; 
             }
             self.cycles += 1;
         }
