@@ -1,4 +1,4 @@
 target/
 rom/
-pkgs/
+pkg/
 Cargo.lock
