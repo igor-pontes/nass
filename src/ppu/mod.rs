@@ -77,10 +77,11 @@ impl PPU {
                 }
             },
             0..=239 => { // Render
-                if self.mask.show_background()   {
+                if self.mask.show_background() {
                     // log("------- Background enabled. -------");
-                    let show_leftmost = (((self.mask.show_background_leftmost() as u8) ^ (self.cycle <= 8) as u8)) != 0;
-                    if (self.cycle != 0 && !show_leftmost) || self.cycle > 8 {
+                    // let show_leftmost = (((self.mask.show_background_leftmost() as u8) ^ (self.cycle <= 8) as u8)) != 0;
+                    // if (self.cycle != 0 && !show_leftmost) || self.cycle > 8 {
+                        // In each 8-dot window, the PPU performs the 4 memory fetches required to produce 8 pixels
                         let v = self.addr.get();
                         let fine_y = v & 0x7000 >> 12;
 
@@ -89,10 +90,7 @@ impl PPU {
 
                         // https://www.nesdev.org/wiki/PPU_attribute_tables
                         let attr_addr = 0x23C0 | (v & 0x0C00) | ((v >> 4) & 0x38) | ((v >> 2) & 0x07);
-
                         let attr_data = self.vram[self.mirror_vram_addr(attr_addr) as usize];
-
-                        // log("still working.");
 
                         let half_pattern_table = if self.ctrl.get_background_pattern_addr() { 0x1000 } else { 0 };
                         let color_addr_0 = half_pattern_table | (tile as u16) << 4 | 1 << 3 | fine_y;
@@ -105,10 +103,8 @@ impl PPU {
                         let tile_row = ((v & 0x3e0) >> 5) as u8;
                         let quadrant = (tile_row & 0x2) + ((tile_column & 0x2) >> 1);
                         let attr_color = (attr_data & (0x3 << (quadrant * 2))) >> (quadrant * 2);
-                        // log(&format!("attr_color: {}; color_tile: {}", attr_color, color_tile));
-                        color_bg = (0x10 | attr_color | color_tile) as u8;
-
-                        // log(&format!("PPU color: {:#010b}", color_bg));
+                        // color_bg = (0x10 | attr_color | color_tile) as u8;
+                        color_bg = self.palette_table[(attr_color | color_tile) as usize];
 
                         // Increment address
                         if self.cycle % 8 == 0 {
@@ -120,25 +116,25 @@ impl PPU {
                             }
                         }
                         // log(&format!("No problems here."));
-                    }
+                    // }
                 }
 
-                if self.mask.show_sprite() {
-                    let show_leftmost = (self.mask.show_sprite_leftmost() as u8 ^ (self.cycle <= 8) as u8) != 0;
-                    if (self.cycle != 0 && !show_leftmost) || self.cycle > 8 {
-                        // TODO
-                    }
-                }
+                // if self.mask.show_sprite() {
+                //     let show_leftmost = (self.mask.show_sprite_leftmost() as u8 ^ (self.cycle <= 8) as u8) != 0;
+                //     if (self.cycle != 0 && !show_leftmost) || self.cycle > 8 {
+                //         // TODO
+                //     }
+                // }
                 if self.cycle <= 256 {
-                    self.frame.set_pixel(color_bg)
+                    self.frame.set_pixel(color_bg);
                 }
             }
             240 => {
                 // Post-render
                 // self.frame.set_pixel(0, 0, color::COLORS[(color_bg & 0xFF) as usize])
-                if self.cycle == 0 {
-                    // log(&format!("[PPU] frame_x: {} | frame_y: {}", self.frame.x, self.frame.y));
-                }
+                // if self.cycle == 0 {
+                //     log(&format!("[PPU] frame_x: {} | frame_y: {}", self.frame.x, self.frame.y));
+                // }
             }
             241..=u16::MAX => {
                 // Vertical Blank Lines

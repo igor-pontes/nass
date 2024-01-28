@@ -6,9 +6,6 @@ const COLORS  = [
     "#adadad", "#155fd9", "#4240ff", "#7527fe", "#a01acc", "#b71e7b", "#b53120", "#994e00",
     "#6b6d00", "#388700", "#0c9300", "#008f32", "#007c8d", "#000000", "#000000", "#000000",
     "#fffeff", "#64b0ff", "#9290ff", "#c676ff", "#f36aff", "#fe6ecc", "#fe8170", "#ea9e22",
-    "#bcbe00", "#88d800", "#5ce430", "#45e082", "#48cdde", "#4f4f4f", "#000000", "#000000",
-    "#fffeff", "#c0dfff", "#d3d2ff", "#e8c8ff", "#fbc2ff", "#fec4ea", "#feccc5", "#f7d8a5",
-    "#e4e594", "#cfef96", "#bdf4ab", "#b3f3cc", "#b5ebf2", "#b8b8b8", "#000000", "#000000",
 ];
 
 const PIXEL_SIZE = 8;
@@ -34,6 +31,7 @@ const drawCells = () => {
       const color = COLORS[buffer[frame_pointer + HEIGHT * row + col]];
       ctx.fillStyle = color;
       ctx.fillRect(col * PIXEL_SIZE, row * PIXEL_SIZE, PIXEL_SIZE, PIXEL_SIZE);
+      // ctx.fillRect(col, row, 1, 1);
     }
   }
 }

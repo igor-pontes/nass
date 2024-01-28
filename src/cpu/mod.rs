@@ -42,7 +42,7 @@ impl CPU {
             p: 0x34, // 0011 0100 (IRQ disabled)
             bus,
             cycle: 0,
-            odd_cycle: false,
+            odd_cycle: true,
             // skip_cycles: 0
         }
     }
@@ -50,10 +50,10 @@ impl CPU {
     pub fn step(&mut self, interrupt: &mut Interrupt) {
 
         // if self.pc == 0x828c { log("WORKING?."); panic!(""); }
-
+        self.odd_cycle = !self.odd_cycle;
+        
         if self.cycle > 0 {
             self.cycle -= 1;
-            self.odd_cycle = !self.odd_cycle;
             return;
         }
 
@@ -73,8 +73,6 @@ impl CPU {
         }
 
         self.pc += 1;
-
-        self.odd_cycle = !self.odd_cycle;
     }
 
     pub fn reset(&mut self) {
@@ -413,9 +411,7 @@ impl CPU {
                     self.set_z((operand & self.a) == 0);
                 },
                 JMP | _JMP => {
-                    // JMP == _JMP
-                    // TODO: http://www.6502.org/users/obelisk/6502/reference.html#JMP
-                    self.pc = value-1;
+                    self.pc = value - 1;
                 },
                 STY => {
                     self.bus.write(value, self.y);
