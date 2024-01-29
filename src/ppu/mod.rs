@@ -24,7 +24,6 @@ pub struct PPU {
     pub mapper: Rc<RefCell<Box<dyn Mapper>>>,
     pub palette_table: [u8; 0x20],
     pub vram: [u8; 0x800], // Nametables (2kB)
-    // OAM
     pub oam_data: [u8; 0x100],
     pub oam_addr: u8,
     addr: AddrRegister,
@@ -37,28 +36,38 @@ pub struct PPU {
     scanline: u16,
     pub cycle: usize,
     odd_frame: bool,
-    pub frame: Frame
+    pub frame: Frame,
+    x: usize,
+    y: usize,
+    x_fine: usize,
+    y_fine: u16,
+    pub debug: bool
 }
 
 impl PPU {
     pub fn new(mapper: Rc<RefCell<Box<dyn Mapper>>> ) -> Self {
         PPU {
-            mapper,
             palette_table: [0; 0x20],
+            mapper,
             vram: [0; 0x800],
             oam_data: [0; 0x100],
-            oam_addr: 0,
+            oam_addr: 0x0,
             addr: AddrRegister::new(),
-            temp: 0,
+            temp: 0x0,
             ctrl: ControlRegister::new(),
             mask: PPUMask::new(),
             status: PPUStatus::new(),
-            internal_data_buff: 0,
-            fine_x: 0,
+            internal_data_buff: 0x0,
+            fine_x: 0x0,
             scanline: 261,
-            cycle: 0,
+            cycle: 0x0,
             odd_frame: false, // "true" because we switch to "false" in frame 0.
-            frame: Frame::new()
+            frame: Frame::new(),
+            x: 0,
+            y: 0,
+            x_fine: 0,
+            y_fine: 0,
+            debug: false,
         }
     }
 
@@ -68,73 +77,122 @@ impl PPU {
         let mut color_bg = 0;
         match self.scanline {
             261 => { // Pre-render
-                if self.cycle == 1 { 
-                    self.status.update(self.status.bits() & 0x7F);
-                }
-                if (self.cycle == 339 && self.odd_frame) || self.cycle == 340 { 
-                    self.scanline = 0; self.cycle = 0; 
-                    self.odd_frame = !self.odd_frame;
+                if self.cycle > 0 {
+                    if self.cycle == 1 { 
+                        self.status.update(self.status.bits() & 0x7F);
+                    }
+                    if (self.cycle == 339 && self.odd_frame) || self.cycle == 340 { 
+                        self.scanline = 0; self.cycle = 0; 
+                        self.odd_frame = !self.odd_frame;
+                    }
+                    // if self.cycle % 8 == 0 && (self.cycle <= 256 || self.cycle >= 328) {
+                    //     self.addr.coarse_x_increment();
+                    //     if self.cycle == 256 { self.addr.y_increment(); }
+                    // }
                 }
             },
             0..=239 => { // Render
-                if self.mask.show_background() {
-                    // log("------- Background enabled. -------");
-                    // let show_leftmost = (((self.mask.show_background_leftmost() as u8) ^ (self.cycle <= 8) as u8)) != 0;
-                    // if (self.cycle != 0 && !show_leftmost) || self.cycle > 8 {
-                        // In each 8-dot window, the PPU performs the 4 memory fetches required to produce 8 pixels
-                        let v = self.addr.get();
-                        let fine_y = v & 0x7000 >> 12;
+                if self.cycle > 0 {
+                    // if self.mask.show_background() {
+                    //     // log("------- Background enabled. -------");
+                    //     // let show_leftmost = (((self.mask.show_background_leftmost() as u8) ^ (self.cycle <= 8) as u8)) != 0;
+                    //     // if (self.cycle != 0 && !show_leftmost) || self.cycle > 8 {
+                    //         // In each 8-dot window, the PPU performs the 4 memory fetches required to produce 8 pixels
+                    //         let v = self.addr.get();
+                    //         let fine_y = v & 0x7000 >> 12;
+                    //
+                    //         let tile_addr = 0x2000 | (v & 0x0FFF);
+                    //         let tile = self.vram[self.mirror_vram_addr(tile_addr) as usize];
+                    //
+                    //         // https://www.nesdev.org/wiki/PPU_attribute_tables
+                    //         let attr_addr = 0x23C0 | (v & 0x0C00) | ((v >> 4) & 0x38) | ((v >> 2) & 0x07);
+                    //         let attr_data = self.vram[self.mirror_vram_addr(attr_addr) as usize];
+                    //
+                    //         let half_pattern_table = if self.ctrl.get_background_pattern_addr() { 0x1000 } else { 0 };
+                    //         let color_addr_0 = half_pattern_table | (tile as u16) << 4 | 1 << 3 | fine_y;
+                    //         let color_addr_1 = half_pattern_table | (tile as u16) << 4 | 0 << 3 | fine_y;
+                    //         let color_bit_0 = unsafe { ( (*self.mapper.as_ptr()).read_chr(color_addr_0) >> self.fine_x ) & 0x1 };
+                    //         let color_bit_1 = unsafe { ( ( (*self.mapper.as_ptr()).read_chr(color_addr_1) >> self.fine_x ) & 0x1 ) << 1 };
+                    //         let color_tile = color_bit_1 | color_bit_0;
+                    //
+                    //         let tile_column = (v & 0x1f) as u8;
+                    //         let tile_row = ((v & 0x3e0) >> 5) as u8;
+                    //         let quadrant = (tile_row & 0x2) + ((tile_column & 0x2) >> 1);
+                    //         let attr_color = (attr_data & (0x3 << (quadrant * 2))) >> (quadrant * 2);
+                    //         // color_bg = (0x10 | attr_color | color_tile) as u8;
+                    //         color_bg = self.palette_table[(attr_color | color_tile) as usize];
+                    //
+                    //         // Increment address
+                    //         if self.cycle % 8 == 0 && (self.cycle <= 256 || self.cycle >= 328) {
+                    //             self.addr.coarse_x_increment();
+                    //             if self.cycle == 256 { self.addr.y_increment(); }
+                    //         }
+                    //
+                    //         // log(&format!("No problems here."));
+                    //     // }
+                    // }
 
-                        let tile_addr = 0x2000 | (v & 0x0FFF);
-                        let tile = self.vram[self.mirror_vram_addr(tile_addr) as usize];
+                    // if self.mask.show_sprite() {
+                    //     let show_leftmost = (self.mask.show_sprite_leftmost() as u8 ^ (self.cycle <= 8) as u8) != 0;
+                    //     if (self.cycle != 0 && !show_leftmost) || self.cycle > 8 {
+                    //         // TODO
+                    //     }
+                    // }
+                    if self.cycle <= 256 && !self.debug {
+                        // Debug.
+                        // Each nametable has 30 rows of 32 tiles each, for 960 ($3C0) bytes; the rest is used by each nametable's attribute table. 
+                        let y = self.y & 0x1F;
+                        let x = self.x & 0x1F;
+                        // let v = self.y_fine | 0x0C00 | ((y << 5) | x) as u16;
+                        let v = self.y_fine | 0x0800 | ((y << 5) | x) as u16;
 
-                        // https://www.nesdev.org/wiki/PPU_attribute_tables
+                        let tile = self.vram[self.mirror_vram_addr(0x2000 | (v & 0x0FFF)) as usize];
+
+                        //  NN 1111 YYY XXX
                         let attr_addr = 0x23C0 | (v & 0x0C00) | ((v >> 4) & 0x38) | ((v >> 2) & 0x07);
                         let attr_data = self.vram[self.mirror_vram_addr(attr_addr) as usize];
 
                         let half_pattern_table = if self.ctrl.get_background_pattern_addr() { 0x1000 } else { 0 };
-                        let color_addr_0 = half_pattern_table | (tile as u16) << 4 | 1 << 3 | fine_y;
-                        let color_addr_1 = half_pattern_table | (tile as u16) << 4 | 0 << 3 | fine_y;
-                        let color_bit_0 = unsafe { ( (*self.mapper.as_ptr()).read_chr(color_addr_0) >> self.fine_x ) & 0x1 };
-                        let color_bit_1 = unsafe { ( ( (*self.mapper.as_ptr()).read_chr(color_addr_1) >> self.fine_x ) & 0x1 ) << 1 };
+                        let color_addr_0 = half_pattern_table | (tile as u16) << 4 | 0 << 3 | (self.y_fine >> 12);
+                        let color_addr_1 = half_pattern_table | (tile as u16) << 4 | 1 << 3 | (self.y_fine >> 12);
+                        let color_bit_0 = ( self.mapper.borrow().read_chr(color_addr_0) >> self.x_fine ) & 0x1;
+                        let color_bit_1 = (( self.mapper.borrow().read_chr(color_addr_1) >> self.x_fine ) & 0x1 ) << 1 ;
                         let color_tile = color_bit_1 | color_bit_0;
 
                         let tile_column = (v & 0x1f) as u8;
                         let tile_row = ((v & 0x3e0) >> 5) as u8;
                         let quadrant = (tile_row & 0x2) + ((tile_column & 0x2) >> 1);
                         let attr_color = (attr_data & (0x3 << (quadrant * 2))) >> (quadrant * 2);
-                        // color_bg = (0x10 | attr_color | color_tile) as u8;
-                        color_bg = self.palette_table[(attr_color | color_tile) as usize];
+                        color_bg = self.palette_table[(0x10 | attr_color << 2 | color_tile) as usize];
 
-                        // Increment address
                         if self.cycle % 8 == 0 {
-                            if self.cycle == 256 {
-                                self.addr.y_increment();
-                                self.addr.coarse_x_increment();
+                            self.x_fine = 0; 
+                            if self.x == 31 {
+                                self.x = 0;
                             } else {
-                                self.addr.coarse_x_increment();
+                                self.x += 1;
+                            }
+                            if self.cycle == 256 {
+                                if self.y_fine != 0x7000 {
+                                    self.y_fine += 0x1000;
+                                } else {
+                                    self.y_fine = 0;
+                                    if self.y == 31 {
+                                        self.y = 0;
+                                    } else {
+                                        self.y += 1; // increment coarse
+                                    }
+                                }
                             }
                         }
-                        // log(&format!("No problems here."));
-                    // }
-                }
-
-                // if self.mask.show_sprite() {
-                //     let show_leftmost = (self.mask.show_sprite_leftmost() as u8 ^ (self.cycle <= 8) as u8) != 0;
-                //     if (self.cycle != 0 && !show_leftmost) || self.cycle > 8 {
-                //         // TODO
-                //     }
-                // }
-                if self.cycle <= 256 {
-                    self.frame.set_pixel(color_bg);
+                        self.x_fine += 1; 
+                        self.frame.set_pixel(color_bg);
+                    }
                 }
             }
             240 => {
                 // Post-render
-                // self.frame.set_pixel(0, 0, color::COLORS[(color_bg & 0xFF) as usize])
-                // if self.cycle == 0 {
-                //     log(&format!("[PPU] frame_x: {} | frame_y: {}", self.frame.x, self.frame.y));
-                // }
+                self.frame.set_frame();
             }
             241..=u16::MAX => {
                 // Vertical Blank Lines
@@ -192,10 +250,6 @@ impl PPU {
     pub fn write_to_oam(&mut self, value: u8) {
         self.oam_data[self.oam_addr as usize] = value;
         self.oam_addr += 1;
-    }
-
-    pub fn copy_to_oam(&mut self, arr: &[u8; 0x100]) {
-        self.oam_data = arr.clone();
     }
 
     pub fn write_data(&mut self, value: u8) {

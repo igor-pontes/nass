@@ -1,37 +1,41 @@
 import init, { disassemble, step, get_frame_pointer } from "./pkg/nass.js";
 
+// https://en.wikipedia.org/wiki/List_of_video_game_console_palettes#Nintendo_Entertainment_System
+
 const COLORS  = [
-    "#666666", "#002a88", "#1412a7", "#3b00a4", "#5c007e", "#6e0040", "#6c0600", "#561d00",
-    "#333500", "#0b4800", "#005200", "#004f08", "#00404d", "#000000", "#000000", "#000000",
-    "#adadad", "#155fd9", "#4240ff", "#7527fe", "#a01acc", "#b71e7b", "#b53120", "#994e00",
-    "#6b6d00", "#388700", "#0c9300", "#008f32", "#007c8d", "#000000", "#000000", "#000000",
-    "#fffeff", "#64b0ff", "#9290ff", "#c676ff", "#f36aff", "#fe6ecc", "#fe8170", "#ea9e22",
+    // "#59595f", "#00008f", "#18008f", "#3f0077", "#505", "#501", "#500", "#420", "#330", "#130", "#031", "#044", "#046", "#000", "#080808", "#080808",
+    "#000", "#00008f", "#18008f", "#3f0077", "#505", "#501", "#500", "#420", "#330", "#130", "#031", "#044", "#046", "#000", "#080808", "#080808",
+    "#aaa", "#04d", "#51e", "#70e", "#90b", "#a05", "#930", "#840", "#660", "#360", "#060", "#065", "#058", "#080808", "#080808", "#080808",
+    "#eee", "#48f", "#77f", "#94f", "#b4e", "#c59", "#d64", "#c80", "#ba0", "#7b0", "#2b2", "#2b7", "#2bc", "#444", "#080808", "#080808",
+    "#eee", "#9cf", "#aaf", "#b9f", "#d9f", "#e9d", "#eaa", "#eb9", "#ed8", "#bd8", "#9d9", "#9db", "#9de", "#aaa", "#080808", "#080808",
 ];
 
-const PIXEL_SIZE = 8;
+
+const PIXEL_SIZE = 2;
 const WIDTH = 256;
 const HEIGHT = 240;
-
 const wasm = await init();
-let buffer = new Uint8Array();
-let frame_pointer;
 
 const canvas = document.getElementById("nass-canvas");
-
-canvas.width = WIDTH * 2;
-canvas.height = HEIGHT * 2;
+canvas.width = WIDTH*2;
+canvas.height = HEIGHT*2;
 
 const ctx = canvas.getContext('2d');
+
+let buffer = new Uint8Array();
+let frame_pointer;
 
 document.getElementById("rom-input").onchange = getFile;
 
 const drawCells = () => {
+  let index = 0;
   for (let row = 0; row < HEIGHT; row++) {
     for (let col = 0; col < WIDTH; col++) {
-      const color = COLORS[buffer[frame_pointer + HEIGHT * row + col]];
+      // const color = COLORS[buffer[frame_pointer + index]];
+      const color = COLORS[buffer[frame_pointer + row * WIDTH + col]];
       ctx.fillStyle = color;
       ctx.fillRect(col * PIXEL_SIZE, row * PIXEL_SIZE, PIXEL_SIZE, PIXEL_SIZE);
-      // ctx.fillRect(col, row, 1, 1);
+      // index++;
     }
   }
 }

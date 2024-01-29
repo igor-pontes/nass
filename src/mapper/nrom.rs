@@ -6,6 +6,9 @@ pub use super::cartridge::*;
 extern {
     #[wasm_bindgen(js_namespace = console)]
     fn log(s: &str);
+
+    #[wasm_bindgen(js_namespace = console)]
+    fn error(s: &str);
 }
 
 #[derive(Debug)]
@@ -32,7 +35,13 @@ impl NROM {
 impl Mapper for NROM {
     fn get_mirroring(&self) -> &Mirroring { &self.mirroring }
 
-    fn read_chr(&self, addr: u16) -> u8 { self.chr_rom[addr as usize] }
+    fn read_chr(&self, addr: u16) -> u8 { 
+        if addr <= 0x1fff  {
+            // error(&format!("NROM: Trying to access 0x0000 - 0x1FFFF. Address is {addr:#06x}."));
+            // panic!();
+        }
+        self.chr_rom[addr as usize] 
+    }
 
     fn read_prg(&self, addr: u16) -> u8 { 
         match addr {
