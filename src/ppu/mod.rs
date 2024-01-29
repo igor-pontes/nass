@@ -144,7 +144,7 @@ impl PPU {
                         let y = self.y & 0x1F;
                         let x = self.x & 0x1F;
                         // let v = self.y_fine | 0x0C00 | ((y << 5) | x) as u16;
-                        let v = self.y_fine | 0x0800 | ((y << 5) | x) as u16;
+                        let v = self.y_fine | 0x0000 | ((y << 5) | x) as u16;
 
                         let tile = self.vram[self.mirror_vram_addr(0x2000 | (v & 0x0FFF)) as usize];
 
@@ -166,7 +166,7 @@ impl PPU {
                         color_bg = self.palette_table[(0x10 | attr_color << 2 | color_tile) as usize];
 
                         if self.cycle % 8 == 0 {
-                            self.x_fine = 0; 
+                            self.x_fine = 8; 
                             if self.x == 31 {
                                 self.x = 0;
                             } else {
@@ -185,7 +185,7 @@ impl PPU {
                                 }
                             }
                         }
-                        self.x_fine += 1; 
+                        self.x_fine -= 1; 
                         self.frame.set_pixel(color_bg);
                     }
                 }
