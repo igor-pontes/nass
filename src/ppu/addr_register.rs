@@ -12,22 +12,37 @@ impl AddrRegister {
     }
 
     fn set(&mut self, data: u16) {
-        self.value.0 = (data >> 8) as u8; // b11111111_00000000 -> b00000000_11111111
+        // b11111111_00000000 -> b00000000_11111111
+        self.value.0 = (data >> 8) as u8;
         self.value.1 = (data & 0xFF) as u8;
+    }
+
+    pub fn set_horizontal(&mut self, t_addr: u16) {
+        // X coarse
+        self.value.1 = (self.value.1 & 0xE0) | ((t_addr & 0x1F) as u8);
+    }
+
+    pub fn set_vertical(&mut self, t_data: u16) {
+        // Y coarse
+        let (y_high, y_low) = (((t_data & 0x0300) >> 8) as u8, (t_data & 0x00E0) as u8);
+        self.value.0 = (self.value.0 & 0xFC) | y_high; 
+        self.value.1 = (self.value.1 & 0x1F) | y_low;
     }
 
     pub fn update(&mut self, data: u8, temp: &mut u16) {
         if self.hi_ptr {
-            self.value.0 = data;
-            *temp = ( data as u16 & 0b00111111 ) << 8 | *temp & 0x00FF;
+            let t = temp.clone();
+            *temp = ( (data as u16) & 0x003F ) << 8 | t & 0x00FF;
         } else {
-            self.value.1 = data;
-            *temp = data as u16 & 0b11111111 | *temp & 0xFF00;
+            *temp = (data as u16) & 0x00FF | temp.clone() & 0xFF00;
+            let t = temp.clone();
+            self.value.0 = ((t & 0xFF00) >> 8) as u8;
+            self.value.1 = (t & 0x00FF) as u8;
         } 
 
-        if self.get() > 0x3FFF {
-            self.set(self.get() & 0x3FFF);
-        }
+        // if self.get() > 0x3FFF {
+        //     self.set(self.get() & 0x3FFF);
+        // }
 
         self.toggle_latch();
     }

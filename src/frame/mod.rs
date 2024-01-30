@@ -1,8 +1,8 @@
 pub struct Frame {
     pub width: usize,
     pub height: usize,
-    // pub x: usize,
-    // pub y: usize,
+    pub x: usize,
+    pub y: usize,
     pub index: usize,
     frame: Box<[u8; 256*240]>,
     temp: Box<[u8; 256*240]>
@@ -14,8 +14,8 @@ impl Frame {
         Frame {
             width: 256,
             height: 240,
-            // x: 0,
-            // y: 0,
+            x: 0,
+            y: 0,
             index: 0,
             frame: Box::new([0; 256*240]),
             temp: Box::new([0; 256*240]),
@@ -23,10 +23,20 @@ impl Frame {
     }
 
     pub fn set_pixel(&mut self, color: u8) {
-        self.frame[self.index] = color;
-        self.index += 1;
-        if self.index == (self.height * self.width) {
-            self.index = 0;
+        // self.frame[self.index] = color;
+        // self.index += 1;
+        // if self.index == (self.height * self.width) {
+        //     self.index = 0;
+        // }
+
+        self.frame[self.y * self.width + self.x] = color;
+        self.x += 1;
+        if self.x == self.width {
+            self.x = 0;
+            self.y += 1;
+            if self.y == self.height {
+                self.y = 0;
+            }
         }
     }
 
@@ -35,6 +45,6 @@ impl Frame {
     }
 
     pub fn get_pointer(&self) -> *const u8 {
-        self.temp.as_ptr()
+        self.frame.as_ptr()
     }
 }

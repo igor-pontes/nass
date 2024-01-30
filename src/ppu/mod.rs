@@ -37,11 +37,11 @@ pub struct PPU {
     pub cycle: usize,
     odd_frame: bool,
     pub frame: Frame,
-    x: usize,
-    y: usize,
-    x_fine: usize,
-    y_fine: u16,
-    pub debug: bool
+    // x: usize,
+    // y: usize,
+    // x_fine: usize,
+    // y_fine: u16,
+    // pub debug: bool
 }
 
 impl PPU {
@@ -63,11 +63,11 @@ impl PPU {
             cycle: 0x0,
             odd_frame: false, // "true" because we switch to "false" in frame 0.
             frame: Frame::new(),
-            x: 0,
-            y: 0,
-            x_fine: 0,
-            y_fine: 0,
-            debug: false,
+            // x: 0,
+            // y: 0,
+            // x_fine: 0,
+            // y_fine: 0,
+            // debug: false,
         }
     }
 
@@ -89,48 +89,65 @@ impl PPU {
                     //     self.addr.coarse_x_increment();
                     //     if self.cycle == 256 { self.addr.y_increment(); }
                     // }
+                    
+                    if self.mask.show_background() { 
+                        if self.cycle % 8 == 0 && (self.cycle <= 256 || self.cycle >= 328 ){
+                            self.addr.coarse_x_increment();
+                            if self.cycle == 256 { self.addr.y_increment(); }
+                        }
+                        if self.cycle == 257 { self.addr.set_horizontal(self.temp); }
+                        if  self.cycle >= 280 || self.cycle <= 304 { self.addr.set_vertical(self.temp); }
+                    }
                 }
             },
             0..=239 => { // Render
                 if self.cycle > 0 {
-                    // if self.mask.show_background() {
-                    //     // log("------- Background enabled. -------");
-                    //     // let show_leftmost = (((self.mask.show_background_leftmost() as u8) ^ (self.cycle <= 8) as u8)) != 0;
-                    //     // if (self.cycle != 0 && !show_leftmost) || self.cycle > 8 {
-                    //         // In each 8-dot window, the PPU performs the 4 memory fetches required to produce 8 pixels
-                    //         let v = self.addr.get();
-                    //         let fine_y = v & 0x7000 >> 12;
-                    //
-                    //         let tile_addr = 0x2000 | (v & 0x0FFF);
-                    //         let tile = self.vram[self.mirror_vram_addr(tile_addr) as usize];
-                    //
-                    //         // https://www.nesdev.org/wiki/PPU_attribute_tables
-                    //         let attr_addr = 0x23C0 | (v & 0x0C00) | ((v >> 4) & 0x38) | ((v >> 2) & 0x07);
-                    //         let attr_data = self.vram[self.mirror_vram_addr(attr_addr) as usize];
-                    //
-                    //         let half_pattern_table = if self.ctrl.get_background_pattern_addr() { 0x1000 } else { 0 };
-                    //         let color_addr_0 = half_pattern_table | (tile as u16) << 4 | 1 << 3 | fine_y;
-                    //         let color_addr_1 = half_pattern_table | (tile as u16) << 4 | 0 << 3 | fine_y;
-                    //         let color_bit_0 = unsafe { ( (*self.mapper.as_ptr()).read_chr(color_addr_0) >> self.fine_x ) & 0x1 };
-                    //         let color_bit_1 = unsafe { ( ( (*self.mapper.as_ptr()).read_chr(color_addr_1) >> self.fine_x ) & 0x1 ) << 1 };
-                    //         let color_tile = color_bit_1 | color_bit_0;
-                    //
-                    //         let tile_column = (v & 0x1f) as u8;
-                    //         let tile_row = ((v & 0x3e0) >> 5) as u8;
-                    //         let quadrant = (tile_row & 0x2) + ((tile_column & 0x2) >> 1);
-                    //         let attr_color = (attr_data & (0x3 << (quadrant * 2))) >> (quadrant * 2);
-                    //         // color_bg = (0x10 | attr_color | color_tile) as u8;
-                    //         color_bg = self.palette_table[(attr_color | color_tile) as usize];
-                    //
-                    //         // Increment address
-                    //         if self.cycle % 8 == 0 && (self.cycle <= 256 || self.cycle >= 328) {
-                    //             self.addr.coarse_x_increment();
-                    //             if self.cycle == 256 { self.addr.y_increment(); }
-                    //         }
-                    //
-                    //         // log(&format!("No problems here."));
-                    //     // }
-                    // }
+
+                    if self.mask.show_background() {
+                        // log("------- Background enabled. -------");
+                        // let show_leftmost = (((self.mask.show_background_leftmost() as u8) ^ (self.cycle <= 8) as u8)) != 0;
+                        // if (self.cycle != 0 && !show_leftmost) || self.cycle > 8 {
+                            // In each 8-dot window, the PPU performs the 4 memory fetches required to produce 8 pixels
+                            let v = self.addr.get();
+                            let fine_y = v & 0x7000 >> 12;
+
+                            let tile_addr = 0x2000 | (v & 0x0FFF);
+                            let tile = self.vram[self.mirror_vram_addr(tile_addr) as usize];
+
+                            // https://www.nesdev.org/wiki/PPU_attribute_tables
+                            let attr_addr = 0x23C0 | (v & 0x0C00) | ((v >> 4) & 0x38) | ((v >> 2) & 0x07);
+                            let attr_data = self.vram[self.mirror_vram_addr(attr_addr) as usize];
+
+                            let half_pattern_table = if self.ctrl.get_background_pattern_addr() { 0x1000 } else { 0 };
+                            let color_addr_0 = half_pattern_table | (tile as u16) << 4 | 0 << 3 | fine_y;
+                            let color_addr_1 = half_pattern_table | (tile as u16) << 4 | 1 << 3 | fine_y;
+                            let color_bit_0 = ( self.mapper.borrow().read_chr(color_addr_0) >> self.fine_x ) & 0x1;
+                            let color_bit_1 = ( ( self.mapper.borrow().read_chr(color_addr_1) >> self.fine_x ) & 0x1 ) << 1;
+                            let color_tile = color_bit_1 | color_bit_0;
+
+                            let tile_column = (v & 0x1f) as u8;
+                            let tile_row = ((v & 0x3e0) >> 5) as u8;
+                            let quadrant = (tile_row & 0x2) + ((tile_column & 0x2) >> 1);
+                            let attr_color = (attr_data & (0x3 << (quadrant * 2))) >> (quadrant * 2);
+                            // color_bg = (0x10 | attr_color | color_tile) as u8;
+                            color_bg = self.palette_table[( 0x10 | attr_color << 2 | color_tile) as usize];
+
+                            // Increment address
+                            // if self.cycle % 8 == 0 && (self.cycle <= 256 || self.cycle >= 328) {
+                            // log(&format!("No problems here."));
+                            if self.cycle % 8 == 0 && (self.cycle <= 256 || self.cycle >= 328 ){
+                                self.addr.coarse_x_increment();
+                                if self.cycle == 256 { self.addr.y_increment(); }
+                            }
+                            if self.cycle == 257 { 
+                                self.addr.set_horizontal(self.temp); 
+                            }
+                        // }
+                    }
+
+                    if self.cycle <= 256 {
+                        self.frame.set_pixel(color_bg);
+                    }
 
                     // if self.mask.show_sprite() {
                     //     let show_leftmost = (self.mask.show_sprite_leftmost() as u8 ^ (self.cycle <= 8) as u8) != 0;
@@ -138,60 +155,62 @@ impl PPU {
                     //         // TODO
                     //     }
                     // }
-                    if self.cycle <= 256 && !self.debug {
-                        // Debug.
-                        // Each nametable has 30 rows of 32 tiles each, for 960 ($3C0) bytes; the rest is used by each nametable's attribute table. 
-                        let y = self.y & 0x1F;
-                        let x = self.x & 0x1F;
-                        // let v = self.y_fine | 0x0C00 | ((y << 5) | x) as u16;
-                        let v = self.y_fine | 0x0000 | ((y << 5) | x) as u16;
-
-                        let tile = self.vram[self.mirror_vram_addr(0x2000 | (v & 0x0FFF)) as usize];
-
-                        //  NN 1111 YYY XXX
-                        let attr_addr = 0x23C0 | (v & 0x0C00) | ((v >> 4) & 0x38) | ((v >> 2) & 0x07);
-                        let attr_data = self.vram[self.mirror_vram_addr(attr_addr) as usize];
-
-                        let half_pattern_table = if self.ctrl.get_background_pattern_addr() { 0x1000 } else { 0 };
-                        let color_addr_0 = half_pattern_table | (tile as u16) << 4 | 0 << 3 | (self.y_fine >> 12);
-                        let color_addr_1 = half_pattern_table | (tile as u16) << 4 | 1 << 3 | (self.y_fine >> 12);
-                        let color_bit_0 = ( self.mapper.borrow().read_chr(color_addr_0) >> self.x_fine ) & 0x1;
-                        let color_bit_1 = (( self.mapper.borrow().read_chr(color_addr_1) >> self.x_fine ) & 0x1 ) << 1 ;
-                        let color_tile = color_bit_1 | color_bit_0;
-
-                        let tile_column = (v & 0x1f) as u8;
-                        let tile_row = ((v & 0x3e0) >> 5) as u8;
-                        let quadrant = (tile_row & 0x2) + ((tile_column & 0x2) >> 1);
-                        let attr_color = (attr_data & (0x3 << (quadrant * 2))) >> (quadrant * 2);
-                        color_bg = self.palette_table[(0x10 | attr_color << 2 | color_tile) as usize];
-
-                        if self.cycle % 8 == 0 {
-                            self.x_fine = 8; 
-                            if self.x == 31 {
-                                self.x = 0;
-                            } else {
-                                self.x += 1;
-                            }
-                            if self.cycle == 256 {
-                                if self.y_fine != 0x7000 {
-                                    self.y_fine += 0x1000;
-                                } else {
-                                    self.y_fine = 0;
-                                    if self.y == 31 {
-                                        self.y = 0;
-                                    } else {
-                                        self.y += 1; // increment coarse
-                                    }
-                                }
-                            }
-                        }
-                        self.x_fine -= 1; 
-                        self.frame.set_pixel(color_bg);
-                    }
+                    // if self.cycle <= 256 && !self.debug {
+                    //     // Debug.
+                    //     // Each nametable has 30 rows of 32 tiles each, for 960 ($3C0) bytes; the rest is used by each nametable's attribute table. 
+                    //     let y = self.y & 0x1F;
+                    //     let x = self.x & 0x1F;
+                    //     // let v = self.y_fine | 0x0C00 | ((y << 5) | x) as u16;
+                    //     let v = self.y_fine | 0x0000 | ((y << 5) | x) as u16;
+                    //
+                    //     let tile = self.vram[self.mirror_vram_addr(0x2000 | (v & 0x0FFF)) as usize];
+                    //
+                    //     //  NN 1111 YYY XXX
+                    //     let attr_addr = 0x23C0 | (v & 0x0C00) | ((v >> 4) & 0x38) | ((v >> 2) & 0x07);
+                    //     let attr_data = self.vram[self.mirror_vram_addr(attr_addr) as usize];
+                    //
+                    //     let half_pattern_table = if self.ctrl.get_background_pattern_addr() { 0x1000 } else { 0 };
+                    //     let color_addr_0 = half_pattern_table | (tile as u16) << 4 | 0 << 3 | (self.y_fine >> 12);
+                    //     let color_addr_1 = half_pattern_table | (tile as u16) << 4 | 1 << 3 | (self.y_fine >> 12);
+                    //     let color_bit_0 = ( self.mapper.borrow().read_chr(color_addr_0) >> self.x_fine ) & 0x1;
+                    //     let color_bit_1 = (( self.mapper.borrow().read_chr(color_addr_1) >> self.x_fine ) & 0x1 ) << 1 ;
+                    //     let color_tile = color_bit_1 | color_bit_0;
+                    //
+                    //     let tile_column = (v & 0x1f) as u8;
+                    //     let tile_row = ((v & 0x3e0) >> 5) as u8;
+                    //     let quadrant = (tile_row & 0x2) + ((tile_column & 0x2) >> 1);
+                    //     let attr_color = (attr_data & (0x3 << (quadrant * 2))) >> (quadrant * 2);
+                    //     color_bg = self.palette_table[(0x10 | attr_color << 2 | color_tile) as usize];
+                    //
+                    //     if self.cycle % 8 == 0 {
+                    //         self.x_fine = 8; 
+                    //         if self.x == 31 {
+                    //             self.x = 0;
+                    //         } else {
+                    //             self.x += 1;
+                    //         }
+                    //         if self.cycle == 256 {
+                    //             if self.y_fine != 0x7000 {
+                    //                 self.y_fine += 0x1000;
+                    //             } else {
+                    //                 self.y_fine = 0x0000;
+                    //                 if self.y > 31 {
+                    //                     self.y = 0;
+                    //                 } else {
+                    //                     self.y += 1; // increment coarse
+                    //                 }
+                    //             }
+                    //         }
+                    //     }
+                    //     self.x_fine -= 1; 
+                    //     self.frame.set_pixel(color_bg);
+                    // }
                 }
             }
             240 => {
                 // Post-render
+                // log(&format!("X: {} | Y: {}", self.x, self.y));
+                // self.y = 0;
                 self.frame.set_frame();
             }
             241..=u16::MAX => {
