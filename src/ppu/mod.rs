@@ -71,12 +71,12 @@ impl PPU {
                     }
 
                     if self.mask.show_background() || self.mask.show_sprite() { 
-                        if self.cycle % 8 == 0 && (self.cycle <= 256 || self.cycle >= 321 && self.cycle <= 336) {
+                        if self.cycle % 8 == 0 && (self.cycle <= 256 || self.cycle >= 328) {
                             self.addr.coarse_x_increment();
                             if self.cycle == 256 { self.addr.coarse_y_increment(); }
                         }
 
-                        if self.cycle > 256 { self.addr.set_horizontal(self.temp); }
+                        if self.cycle == 257 { self.addr.set_horizontal(self.temp); }
                         if self.cycle >= 280 && self.cycle <= 304 { self.addr.set_vertical(self.temp); }
                     }
 
@@ -87,11 +87,11 @@ impl PPU {
                 }
             },
             0..=239 => { // Render
-                if self.cycle > 0 && (self.cycle <= 257 || self.cycle >= 321 && self.cycle <= 336) {
-                    if self.mask.show_background() && (self.cycle > 7 || self.mask.show_background_leftmost()) {
-                        let fine_x = (self.fine_x + self.cycle as u8) & 0x7;
+                if self.cycle > 0 && self.cycle <= 256 {
+                    if self.mask.show_background() && (self.cycle > 8 || self.mask.show_background_leftmost()) {
+                        let fine_x = (self.fine_x + (self.cycle as u8) & 7) % 8;
                         let v = self.addr.get();
-                        let fine_y = v & 0x7000 >> 12;
+                        let fine_y = v & 0x7000;
 
                         // https://www.nesdev.org/wiki/PPU_scrolling#Wrapping_around
                         let tile_addr = 0x2000 | (v & 0x0FFF);
@@ -100,8 +100,8 @@ impl PPU {
                         let attr_data = self.vram[self.mirror_vram_addr(attr_addr) as usize];
 
                         let half_pattern_table = if self.ctrl.get_background_pattern_addr() { 0x1000 } else { 0 };
-                        let color_addr_0 = half_pattern_table | (tile as u16) << 4 | 0 << 3 | fine_y;
-                        let color_addr_1 = half_pattern_table | (tile as u16) << 4 | 1 << 3 | fine_y;
+                        let color_addr_0 = half_pattern_table | (tile as u16) << 4 | 0 << 3 | fine_y >> 12;
+                        let color_addr_1 = half_pattern_table | (tile as u16) << 4 | 1 << 3 | fine_y >> 12;
                         let color_bit_0 = ( self.mapper.borrow().read_chr(color_addr_0) >> fine_x) & 0x1;
                         let color_bit_1 = ( self.mapper.borrow().read_chr(color_addr_1) >> fine_x) & 0x1;
                         let color_tile = (color_bit_1 << 1) | color_bit_0;
@@ -112,23 +112,19 @@ impl PPU {
                         let attr_color = (attr_data & (0x3 << (quadrant * 2))) >> (quadrant * 2);
                         color_bg = self.palette_table[(attr_color << 2 | color_tile) as usize];
                     }
-
-                    if self.mask.show_sprite() && (self.cycle > 7 || self.mask.show_sprite_leftmost()) {
+                    
+                    if self.mask.show_sprite() && (self.cycle > 8 || self.mask.show_sprite_leftmost()) {
                         // todo
                     }
-
-                    if self.mask.show_sprite() || self.mask.show_background() && self.cycle != 257 {
-                        if self.cycle % 8 == 0 {
-                            self.addr.coarse_x_increment();
-                            if self.cycle == 256 { self.addr.coarse_y_increment(); }
-                        }
-                        if self.cycle > 256 { self.addr.set_horizontal(self.temp); }
-                    }
-
-                    if self.cycle <= 256 {
-                        self.frame.set_pixel(color_bg);
+                    self.frame.set_pixel(color_bg);
+                }
+                if self.mask.show_sprite() || self.mask.show_background() && self.cycle > 0{
+                    if self.cycle % 8 == 0 && (self.cycle <= 256 || self.cycle >= 328) {
+                        self.addr.coarse_x_increment();
+                        if self.cycle == 256 { self.addr.coarse_y_increment(); }
                     }
                 }
+                if self.cycle == 257 { self.addr.set_horizontal(self.temp); }
             }
             240 => {
                 // Post-render
