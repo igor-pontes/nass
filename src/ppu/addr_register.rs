@@ -1,11 +1,3 @@
-use wasm_bindgen::prelude::*;
-
-#[wasm_bindgen]
-extern {
-    #[wasm_bindgen(js_namespace = console)]
-    fn error(s: &str);
-}
-
 pub struct AddrRegister {
     value: (u8, u8),
     hi_ptr: bool

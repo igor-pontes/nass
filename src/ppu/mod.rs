@@ -71,64 +71,65 @@ impl PPU {
                     }
 
                     if self.mask.show_background() || self.mask.show_sprite() { 
-                        if self.cycle % 8 == 0 && (self.cycle <= 256 || self.cycle >= 328) {
-                            self.addr.coarse_x_increment();
-                            if self.cycle == 256 { self.addr.coarse_y_increment(); }
-                        }
-
-                        if self.cycle == 257 { self.addr.set_horizontal(self.temp); }
+                        if self.cycle % 8 == 0 && (self.cycle <= 256 || self.cycle >= 328) { self.addr.coarse_x_increment(); }
+                        if self.cycle == 256 { self.addr.coarse_y_increment(); }
+                        if self.cycle >= 257 && self.cycle <= 321{ self.addr.set_horizontal(self.temp); }
                         if self.cycle >= 280 && self.cycle <= 304 { self.addr.set_vertical(self.temp); }
                     }
 
                     if (self.cycle == 339 && self.odd_frame) || self.cycle == 340 { 
                         self.scanline = 0; self.cycle = 0; 
                         self.odd_frame = !self.odd_frame;
+                        return
                     }
                 }
             },
             0..=239 => { // Render
-                if self.cycle > 0 && self.cycle <= 256 {
-                    if self.mask.show_background() && (self.cycle > 8 || self.mask.show_background_leftmost()) {
-                        let fine_x = (self.fine_x + (self.cycle as u8) & 7) % 8;
-                        let v = self.addr.get();
-                        let fine_y = v & 0x7000;
+                if self.cycle > 0 {
+                    if self.cycle <= 256 {
+                        if self.mask.show_background() && (self.cycle > 8 || self.mask.show_background_leftmost()) {
+                            let fine_x = (self.fine_x + (self.cycle as u8) & 7) % 8;
+                            let v = self.addr.get();
+                            let fine_y = v & 0x7000;
 
-                        // https://www.nesdev.org/wiki/PPU_scrolling#Wrapping_around
-                        let tile_addr = 0x2000 | (v & 0x0FFF);
-                        let tile = self.vram[self.mirror_vram_addr(tile_addr) as usize];
-                        let attr_addr = 0x23C0 | (v & 0x0C00) | ((v >> 4) & 0x38) | ((v >> 2) & 0x07);
-                        let attr_data = self.vram[self.mirror_vram_addr(attr_addr) as usize];
+                            // https://www.nesdev.org/wiki/PPU_scrolling#Wrapping_around
+                            let tile_addr = 0x2000 | (v & 0x0FFF);
+                            let tile = self.vram[self.mirror_vram_addr(tile_addr) as usize];
+                            let attr_addr = 0x23C0 | (v & 0x0C00) | ((v >> 4) & 0x38) | ((v >> 2) & 0x07);
+                            let attr_data = self.vram[self.mirror_vram_addr(attr_addr) as usize];
 
-                        let half_pattern_table = if self.ctrl.get_background_pattern_addr() { 0x1000 } else { 0 };
-                        let color_addr_0 = half_pattern_table | (tile as u16) << 4 | 0 << 3 | fine_y >> 12;
-                        let color_addr_1 = half_pattern_table | (tile as u16) << 4 | 1 << 3 | fine_y >> 12;
-                        let color_bit_0 = ( self.mapper.borrow().read_chr(color_addr_0) >> fine_x) & 0x1;
-                        let color_bit_1 = ( self.mapper.borrow().read_chr(color_addr_1) >> fine_x) & 0x1;
-                        let color_tile = (color_bit_1 << 1) | color_bit_0;
+                            let half_pattern_table = if self.ctrl.get_background_pattern_addr() { 0x1000 } else { 0 };
+                            let color_addr_0 = half_pattern_table | (tile as u16) << 4 | 0 << 3 | fine_y >> 12;
+                            let color_addr_1 = half_pattern_table | (tile as u16) << 4 | 1 << 3 | fine_y >> 12;
+                            let color_bit_0 = ( self.mapper.borrow().read_chr(color_addr_0) >> fine_x) & 0x1;
+                            let color_bit_1 = ( self.mapper.borrow().read_chr(color_addr_1) >> fine_x) & 0x1;
+                            let color_tile = (color_bit_1 << 1) | color_bit_0;
 
-                        let tile_column = (v & 0x001f) as u8;
-                        let tile_row = ((v & 0x03e0) >> 5) as u8;
-                        let quadrant = (tile_row & 0x2) + ((tile_column & 0x2) >> 1);
-                        let attr_color = (attr_data & (0x3 << (quadrant * 2))) >> (quadrant * 2);
-                        color_bg = self.palette_table[(attr_color << 2 | color_tile) as usize];
-                    }
+                            let tile_column = (v & 0x001f) as u8;
+                            let tile_row = ((v & 0x03e0) >> 5) as u8;
+                            let quadrant = (tile_row & 0x2) + ((tile_column & 0x2) >> 1);
+                            let attr_color = (attr_data & (0x3 << (quadrant * 2))) >> (quadrant * 2);
+                            color_bg = self.palette_table[(attr_color << 2 | color_tile) as usize];
+                        }
                     
-                    if self.mask.show_sprite() && (self.cycle > 8 || self.mask.show_sprite_leftmost()) {
-                        // todo
+                        if self.mask.show_sprite() && (self.cycle > 8 || self.mask.show_sprite_leftmost()) {
+                            // todo
+                        }
+
+                        self.frame.set_pixel(color_bg);
                     }
-                    self.frame.set_pixel(color_bg);
-                }
-                if self.mask.show_sprite() || self.mask.show_background() && self.cycle > 0{
-                    if self.cycle % 8 == 0 && (self.cycle <= 256 || self.cycle >= 328) {
-                        self.addr.coarse_x_increment();
+
+                    if self.mask.show_sprite() || self.mask.show_background() {
+                        if self.cycle % 8 == 0 && (self.cycle <= 256 || self.cycle >= 328) { self.addr.coarse_x_increment(); }
                         if self.cycle == 256 { self.addr.coarse_y_increment(); }
+                        if self.cycle >= 257 && self.cycle <= 321{ self.addr.set_horizontal(self.temp); }
                     }
+
                 }
-                if self.cycle == 257 { self.addr.set_horizontal(self.temp); }
-            }
+            },
             240 => {
                 // Post-render
-            }
+            },
             241..=u16::MAX => {
                 // Vertical Blank Lines
                 if self.scanline == 241 && self.cycle == 1 { 
