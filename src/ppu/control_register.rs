@@ -30,7 +30,7 @@ impl ControlRegister {
 
     pub fn update(&mut self, data: u8, temp: &mut u16) {
         *self = ControlRegister::from_bits_truncate(data);
-        *temp = ( self.get_nametable() as u16 ) << 10 | *temp & 0x73FF;
+        *temp = ( self.get_nametable() as u16 ) << 10 | *temp & 0xF3FF;
     }
 
     pub fn get_background_pattern_addr(&self) -> bool {

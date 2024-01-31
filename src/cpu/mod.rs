@@ -52,14 +52,14 @@ impl CPU {
         // if self.pc == 0x828c { log("WORKING?."); panic!(""); }
         self.odd_cycle = !self.odd_cycle;
         
-        if self.cycle > 0 {
-            self.cycle -= 1;
-            return;
-        }
-
         if (*interrupt) == Interrupt::NMI {
             self.execute_nmi();
             (*interrupt) = Interrupt::DISABLED; 
+        }
+
+        if self.cycle > 0 {
+            self.cycle -= 1;
+            return;
         }
 
         let op = self.bus.read(self.pc);

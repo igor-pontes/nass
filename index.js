@@ -28,14 +28,11 @@ let frame_pointer;
 document.getElementById("rom-input").onchange = getFile;
 
 const drawCells = () => {
-  let index = 0;
   for (let row = 0; row < HEIGHT; row++) {
     for (let col = 0; col < WIDTH; col++) {
-      // const color = COLORS[buffer[frame_pointer + index]];
       const color = COLORS[buffer[frame_pointer + row * WIDTH + col]];
       ctx.fillStyle = color;
       ctx.fillRect(col * PIXEL_SIZE, row * PIXEL_SIZE, PIXEL_SIZE, PIXEL_SIZE);
-      // index++;
     }
   }
 }

@@ -1,11 +1,3 @@
-use wasm_bindgen::prelude::*;
-
-#[wasm_bindgen]
-extern {
-    #[wasm_bindgen(js_namespace = console)]
-    fn error(s: &str);
-}
-
 pub struct AddrRegister {
     value: (u8, u8),
     hi_ptr: bool
@@ -21,19 +13,21 @@ impl AddrRegister {
 
     fn set(&mut self, data: u16) {
         self.value.0 = (data >> 8) as u8;
-        self.value.1 = (data & 0xFF) as u8;
+        self.value.1 = (data & 0x00FF) as u8;
     }
 
-    pub fn set_horizontal(&mut self, t_addr: u16) {
+    pub fn set_horizontal(&mut self, t: u16) {
         // X coarse
-        self.value.1 = (self.value.1 & 0xE0) | ((t_addr & 0x1F) as u8);
+        let (x_high, x_low) = (((t & 0x0400) >> 8) as u8, (t & 0x001F) as u8);
+        self.value.0 = (self.value.0 & !0x04) | x_high;
+        self.value.1 = (self.value.1 & !0x1F) | x_low;
     }
 
-    pub fn set_vertical(&mut self, t_data: u16) {
+    pub fn set_vertical(&mut self, t: u16) {
         // Y coarse
-        let (y_high, y_low) = (((t_data & 0x0300) >> 8) as u8, (t_data & 0x00E0) as u8);
-        self.value.0 = (self.value.0 & 0xFC) | y_high; 
-        self.value.1 = (self.value.1 & 0x1F) | y_low;
+        let (y_high, y_low) = (((t & 0x7B00) >> 8) as u8, (t & 0x00E0) as u8);
+        self.value.0 = (self.value.0 & !0x7B) | y_high; 
+        self.value.1 = (self.value.1 & !0xE0) | y_low;
     }
 
     pub fn update(&mut self, data: u8, temp: &mut u16) {
