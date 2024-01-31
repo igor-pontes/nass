@@ -17,7 +17,7 @@ use wasm_bindgen::prelude::*;
 #[wasm_bindgen]
 extern {
     #[wasm_bindgen(js_namespace = console)]
-    fn log(s: &str);
+    fn error(s: &str);
 }
 
 pub struct PPU {
@@ -59,7 +59,7 @@ impl PPU {
             status: PPUStatus::new(),
             internal_data_buff: 0x0,
             fine_x: 0x0,
-            scanline: 261,
+            scanline: 0,
             cycle: 0x0,
             odd_frame: false, // "true" because we switch to "false" in frame 0.
             frame: Frame::new(),
@@ -72,89 +72,80 @@ impl PPU {
     }
 
     pub fn step(&mut self, interrupt: &mut Interrupt )  {
-        // log(&format!("[PPU] dot: {} | line: {}", self.cycle, self.scanline));
-        // log(&format!("[PPU] line: {}", self.scanline));
         let mut color_bg = 0;
         match self.scanline {
             261 => { // Pre-render
                 if self.cycle > 0 {
                     if self.cycle == 1 { 
-                        self.status.update(self.status.bits() & 0x7F);
+                        self.status.update(self.status.bits() & !0x80);
                     }
+
+                    if self.mask.show_background() || self.mask.show_sprite() { 
+                        if self.cycle % 8 == 0 && (self.cycle <= 256 || self.cycle >= 321 && self.cycle <= 336) {
+                            self.addr.coarse_x_increment();
+                            if self.cycle == 256 { self.addr.coarse_y_increment(); }
+                        }
+
+                        if self.cycle > 256 { self.addr.set_horizontal(self.temp); }
+                        if self.cycle >= 280 && self.cycle <= 304 { self.addr.set_vertical(self.temp); }
+                    }
+
                     if (self.cycle == 339 && self.odd_frame) || self.cycle == 340 { 
                         self.scanline = 0; self.cycle = 0; 
                         self.odd_frame = !self.odd_frame;
-                    }
-                    // if self.cycle % 8 == 0 && (self.cycle <= 256 || self.cycle >= 328) {
-                    //     self.addr.coarse_x_increment();
-                    //     if self.cycle == 256 { self.addr.y_increment(); }
-                    // }
-                    
-                    if self.mask.show_background() { 
-                        if self.cycle % 8 == 0 && (self.cycle <= 256 || self.cycle >= 328 ){
-                            self.addr.coarse_x_increment();
-                            if self.cycle == 256 { self.addr.y_increment(); }
-                        }
-                        if self.cycle == 257 { self.addr.set_horizontal(self.temp); }
-                        if  self.cycle >= 280 || self.cycle <= 304 { self.addr.set_vertical(self.temp); }
+                        return;
                     }
                 }
             },
             0..=239 => { // Render
-                if self.cycle > 0 {
-
+                if self.cycle > 0 && (self.cycle <= 257 || self.cycle >= 321 && self.cycle <= 336) {
                     if self.mask.show_background() {
-                        // log("------- Background enabled. -------");
-                        // let show_leftmost = (((self.mask.show_background_leftmost() as u8) ^ (self.cycle <= 8) as u8)) != 0;
-                        // if (self.cycle != 0 && !show_leftmost) || self.cycle > 8 {
-                            // In each 8-dot window, the PPU performs the 4 memory fetches required to produce 8 pixels
+                        let show_leftmost = (((self.mask.show_background_leftmost() as u8) ^ (self.cycle <= 8) as u8)) != 0;
+                        if !show_leftmost || self.cycle > 8 && self.cycle <= 256 {
                             let v = self.addr.get();
                             let fine_y = v & 0x7000 >> 12;
+                            let fine_x = self.fine_x & 0x7;
 
+                            // https://www.nesdev.org/wiki/PPU_scrolling#Wrapping_around
                             let tile_addr = 0x2000 | (v & 0x0FFF);
                             let tile = self.vram[self.mirror_vram_addr(tile_addr) as usize];
-
-                            // https://www.nesdev.org/wiki/PPU_attribute_tables
                             let attr_addr = 0x23C0 | (v & 0x0C00) | ((v >> 4) & 0x38) | ((v >> 2) & 0x07);
                             let attr_data = self.vram[self.mirror_vram_addr(attr_addr) as usize];
 
                             let half_pattern_table = if self.ctrl.get_background_pattern_addr() { 0x1000 } else { 0 };
                             let color_addr_0 = half_pattern_table | (tile as u16) << 4 | 0 << 3 | fine_y;
                             let color_addr_1 = half_pattern_table | (tile as u16) << 4 | 1 << 3 | fine_y;
-                            let color_bit_0 = ( self.mapper.borrow().read_chr(color_addr_0) >> self.fine_x ) & 0x1;
-                            let color_bit_1 = ( ( self.mapper.borrow().read_chr(color_addr_1) >> self.fine_x ) & 0x1 ) << 1;
-                            let color_tile = color_bit_1 | color_bit_0;
+                            let color_bit_0 = ( self.mapper.borrow().read_chr(color_addr_0) >> !fine_x) & 0x1;
+                            let color_bit_1 = ( self.mapper.borrow().read_chr(color_addr_1) >> !fine_x) & 0x1;
+                            let color_tile = (color_bit_1 << 1) | color_bit_0;
 
-                            let tile_column = (v & 0x1f) as u8;
-                            let tile_row = ((v & 0x3e0) >> 5) as u8;
+                            let tile_column = (v & 0x001f) as u8;
+                            let tile_row = ((v & 0x03e0) >> 5) as u8;
                             let quadrant = (tile_row & 0x2) + ((tile_column & 0x2) >> 1);
                             let attr_color = (attr_data & (0x3 << (quadrant * 2))) >> (quadrant * 2);
-                            // color_bg = (0x10 | attr_color | color_tile) as u8;
-                            color_bg = self.palette_table[( 0x10 | attr_color << 2 | color_tile) as usize];
+                            color_bg = self.palette_table[(attr_color << 2 | color_tile) as usize];
+                        }
+                    }
 
-                            // Increment address
-                            // if self.cycle % 8 == 0 && (self.cycle <= 256 || self.cycle >= 328) {
-                            // log(&format!("No problems here."));
-                            if self.cycle % 8 == 0 && (self.cycle <= 256 || self.cycle >= 328 ){
-                                self.addr.coarse_x_increment();
-                                if self.cycle == 256 { self.addr.y_increment(); }
-                            }
-                            if self.cycle == 257 { 
-                                self.addr.set_horizontal(self.temp); 
-                            }
-                        // }
+                    if self.mask.show_sprite() {
+                        let show_leftmost = (self.mask.show_sprite_leftmost() as u8 ^ (self.cycle <= 8) as u8) != 0;
+                        if !show_leftmost || self.cycle > 8 && self.cycle <= 256 {
+                            // TODO
+                        }
+                    }
+
+                    if self.mask.show_sprite() || self.mask.show_background() {
+                        self.fine_x += 1;
+                        if self.cycle % 8 == 0 {
+                            self.addr.coarse_x_increment();
+                            if self.cycle == 256 { self.addr.coarse_y_increment(); }
+                        }
+                        if self.cycle > 256 { self.addr.set_horizontal(self.temp); }
                     }
 
                     if self.cycle <= 256 {
                         self.frame.set_pixel(color_bg);
                     }
-
-                    // if self.mask.show_sprite() {
-                    //     let show_leftmost = (self.mask.show_sprite_leftmost() as u8 ^ (self.cycle <= 8) as u8) != 0;
-                    //     if (self.cycle != 0 && !show_leftmost) || self.cycle > 8 {
-                    //         // TODO
-                    //     }
-                    // }
                     // if self.cycle <= 256 && !self.debug {
                     //     // Debug.
                     //     // Each nametable has 30 rows of 32 tiles each, for 960 ($3C0) bytes; the rest is used by each nametable's attribute table. 
@@ -211,15 +202,13 @@ impl PPU {
                 // Post-render
                 // log(&format!("X: {} | Y: {}", self.x, self.y));
                 // self.y = 0;
-                self.frame.set_frame();
+                // self.frame.set_frame();
             }
             241..=u16::MAX => {
                 // Vertical Blank Lines
                 if self.scanline == 241 && self.cycle == 1 { 
                     self.status.update(self.status.bits() | 0x80);
-                    if self.ctrl.generate_nmi() {
-                        (*interrupt) = Interrupt::NMI; 
-                    }
+                    if self.ctrl.generate_nmi() { (*interrupt) = Interrupt::NMI; }
                 }
             }
         }
@@ -229,19 +218,20 @@ impl PPU {
 
     pub fn write_to_scroll(&mut self, value: u8) {
         if self.addr.latch() {
-            self.fine_x = value & 0b00000111;
-            let value = (value & 0b11111000) >> 3;
-            self.temp = self.temp & 0b111111111100000 | value as u16;
+            self.fine_x = value & 0x07;
+            let value = (value & 0xF8) >> 3;
+            self.temp = (self.temp & 0xFFE0) | (value as u16);
         } else {
-            let fine_y_scroll = value & 0b00000111;
-            let coarse_y_scroll = value & 0b11111000;
-            self.temp = self.temp & 0b111001111100000 | ( fine_y_scroll as u16 ) << 12 | (coarse_y_scroll as u16) << 2;
+            let fine_y_scroll = value & 0x07;
+            let coarse_y_scroll = value & 0xF8;
+            self.temp = self.temp & 0x8C1F | ( fine_y_scroll as u16 ) << 12 | (coarse_y_scroll as u16) << 5;
         }
         self.addr.toggle_latch();
     }
 
     pub fn status(&mut self) -> u8 {
         let status = self.status.bits();
+        self.status.update(status & !0x80);
         self.addr.reset_latch();
         status
     }
@@ -272,8 +262,7 @@ impl PPU {
     }
 
     pub fn write_data(&mut self, value: u8) {
-        // log(&format!("PPU<write_data()> VRAM_ADDR({:#06x})", self.addr.get()));
-        let addr = self.addr.get();
+        let addr = self.addr.get() & 0x3FFF;
         self.increment_vram_addr();
         match addr {
             0..=0x1FFF => {
@@ -294,7 +283,7 @@ impl PPU {
     }
 
     pub fn read_data(&mut self) -> u8 {
-        let addr = self.addr.get();
+        let addr = self.addr.get() & 0x3FFF;
         self.increment_vram_addr();
         match addr {
             0..=0x1FFF => {

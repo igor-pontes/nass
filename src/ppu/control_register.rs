@@ -19,16 +19,18 @@ impl ControlRegister {
     }
 
     pub fn vram_addr_increment(&self) -> u8 {
-        if !self.contains(ControlRegister::VRAM_ADD_INCREMENT) {
-            1
-        } else {
-            32
-        }
+        if self.contains(ControlRegister::VRAM_ADD_INCREMENT) { return 32; } 
+        1
+    }
+
+    pub fn get_nametable(&self) -> u8 {
+        (self.contains(ControlRegister::NAMETABLE2) as u8) << 1 | 
+        (self.contains(ControlRegister::NAMETABLE1) as u8)
     }
 
     pub fn update(&mut self, data: u8, temp: &mut u16) {
         *self = ControlRegister::from_bits_truncate(data);
-        *temp = ( data as u16 & 0b00000011 ) << 10 | *temp & 0b111001111111111;
+        *temp = ( self.get_nametable() as u16 ) << 10 | *temp & 0x73FF;
     }
 
     pub fn get_background_pattern_addr(&self) -> bool {

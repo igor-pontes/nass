@@ -1,3 +1,11 @@
+use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen]
+extern {
+    #[wasm_bindgen(js_namespace = console)]
+    fn error(s: &str);
+}
+
 pub struct AddrRegister {
     value: (u8, u8),
     hi_ptr: bool
@@ -12,7 +20,6 @@ impl AddrRegister {
     }
 
     fn set(&mut self, data: u16) {
-        // b11111111_00000000 -> b00000000_11111111
         self.value.0 = (data >> 8) as u8;
         self.value.1 = (data & 0xFF) as u8;
     }
@@ -31,19 +38,12 @@ impl AddrRegister {
 
     pub fn update(&mut self, data: u8, temp: &mut u16) {
         if self.hi_ptr {
-            let t = temp.clone();
-            *temp = ( (data as u16) & 0x003F ) << 8 | t & 0x00FF;
+            *temp = ( (data as u16) & 0x003F ) << 8 | *temp & 0x00FF;
         } else {
-            *temp = (data as u16) & 0x00FF | temp.clone() & 0xFF00;
-            let t = temp.clone();
-            self.value.0 = ((t & 0xFF00) >> 8) as u8;
-            self.value.1 = (t & 0x00FF) as u8;
+            *temp = (data as u16) & 0x00FF | *temp & 0xFF00;
+            self.value.0 = ((*temp & 0xFF00) >> 8) as u8;
+            self.value.1 = (*temp & 0x00FF) as u8;
         } 
-
-        // if self.get() > 0x3FFF {
-        //     self.set(self.get() & 0x3FFF);
-        // }
-
         self.toggle_latch();
     }
 
@@ -57,7 +57,7 @@ impl AddrRegister {
         }
     }
 
-    pub fn y_increment(&mut self) {
+    pub fn coarse_y_increment(&mut self) {
         if (self.value.0 & 0x70) != 0x70 { // if fine Y < 7
           self.value.0 += 0x10;
         } // increment fine Y
@@ -65,13 +65,11 @@ impl AddrRegister {
             self.value.0 &= !0x70; // fine Y = 0
             let mut y = (self.get() & 0x03E0) >> 5; // let y = coarse Y
             if y == 29 {
-                y = 0; // coarse Y = 0
+                y = 0;
                 self.value.0 ^= 0x08; // switch vertical nametable
-            }
-            else if y == 31 {
-                y = 0  
-            } // coarse Y = 0, nametable not switched
-            else {
+            } else if y > 31 {
+                y = 0  // coarse Y = 0, nametable not switched
+            } else {
                 y += 1; // increment coarse Y
             }
             self.set((self.get() & !0x03E0) | (y << 5)); // put coarse Y back into addr
@@ -83,9 +81,6 @@ impl AddrRegister {
         self.value.1 = self.value.1.wrapping_add(inc);
         if lo > self.value.1 {
             self.value.0 = self.value.0.wrapping_add(1);
-        }
-        if self.get() > 0x3FFF {
-            self.set(self.get() & 0x3FFF);
         }
     }
 
@@ -102,6 +97,6 @@ impl AddrRegister {
     }
 
     pub fn get(&self) -> u16 {
-        ((self.value.0 as u16) << 8) | ( self.value.1 as u16 )
+        ( ( self.value.0 as u16 ) << 8 ) | ( self.value.1 as u16 )
     }
 }

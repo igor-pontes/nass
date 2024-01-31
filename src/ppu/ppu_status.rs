@@ -17,4 +17,14 @@ impl PPUStatus {
     pub fn update(&mut self, data: u8) {
         *self = PPUStatus::from_bits_truncate(data);
     }
+    pub fn nmi_status(&self) -> bool {
+        self.intersects(PPUStatus::VERTICAL_BLANK)
+    }
+    pub fn sprite_overflow(&self) -> bool {
+        self.intersects(PPUStatus::SPRITE_OVERFLOW)
+    }
+
+    pub fn sprite_hit(&self) -> bool {
+        self.intersects(PPUStatus::SPRITE_HIT)
+    }
 }
