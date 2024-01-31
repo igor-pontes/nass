@@ -88,7 +88,7 @@ impl PPU {
                 if self.cycle > 0 {
                     if self.cycle <= 256 {
                         if self.mask.show_background() && (self.cycle > 8 || self.mask.show_background_leftmost()) {
-                            let fine_x = (self.fine_x + (self.cycle as u8) & 7) % 8;
+                            let fine_x = self.fine_x + ((self.cycle as u8) % 8);
                             let v = self.addr.get();
                             let fine_y = v & 0x7000;
 
@@ -101,8 +101,8 @@ impl PPU {
                             let half_pattern_table = if self.ctrl.get_background_pattern_addr() { 0x1000 } else { 0 };
                             let color_addr_0 = half_pattern_table | (tile as u16) << 4 | 0 << 3 | fine_y >> 12;
                             let color_addr_1 = half_pattern_table | (tile as u16) << 4 | 1 << 3 | fine_y >> 12;
-                            let color_bit_0 = ( self.mapper.borrow().read_chr(color_addr_0) >> fine_x) & 0x1;
-                            let color_bit_1 = ( self.mapper.borrow().read_chr(color_addr_1) >> fine_x) & 0x1;
+                            let color_bit_0 = ( self.mapper.borrow().read_chr(color_addr_0) >> (8 - fine_x)) & 0x1;
+                            let color_bit_1 = ( self.mapper.borrow().read_chr(color_addr_1) >> (8 - fine_x)) & 0x1;
                             let color_tile = (color_bit_1 << 1) | color_bit_0;
 
                             let tile_column = (v & 0x001f) as u8;
