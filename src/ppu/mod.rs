@@ -12,13 +12,6 @@ pub use self::control_register::ControlRegister;
 pub use self::ppu_mask::PPUMask;
 pub use self::ppu_status::PPUStatus;
 use crate::mapper::Mirroring;
-use wasm_bindgen::prelude::*;
-
-#[wasm_bindgen]
-extern {
-    #[wasm_bindgen(js_namespace = console)]
-    fn error(s: &str);
-}
 
 pub struct PPU {
     pub mapper: Rc<RefCell<Box<dyn Mapper>>>,
@@ -56,7 +49,7 @@ impl PPU {
             fine_x: 0x0,
             scanline: 0,
             cycle: 0x0,
-            odd_frame: false, // "true" because we switch to "false" in frame 0.
+            odd_frame: false,
             frame: Frame::new(),
         }
     }
@@ -64,16 +57,16 @@ impl PPU {
     pub fn step(&mut self, interrupt: &mut Interrupt )  {
         let mut color_bg = 0;
         match self.scanline {
-            261 => { // Pre-render
+            261 => {
                 if self.cycle > 0 {
                     if self.cycle == 1 { 
                         self.status.update(self.status.bits() & !0x80);
                     }
 
                     if self.mask.show_background() || self.mask.show_sprite() { 
-                        if self.cycle % 8 == 0 && (self.cycle <= 256 || self.cycle >= 328) { self.addr.coarse_x_increment(); }
+                        if self.cycle % 8 == 0 && self.cycle <= 256 { self.addr.coarse_x_increment(); }
                         if self.cycle == 256 { self.addr.coarse_y_increment(); }
-                        if self.cycle >= 257 && self.cycle <= 321{ self.addr.set_horizontal(self.temp); }
+                        if self.cycle >= 257 && self.cycle < 321 { self.addr.set_horizontal(self.temp); }
                         if self.cycle >= 280 && self.cycle <= 304 { self.addr.set_vertical(self.temp); }
                     }
 
@@ -84,7 +77,7 @@ impl PPU {
                     }
                 }
             },
-            0..=239 => { // Render
+            0..=239 => {
                 if self.cycle > 0 {
                     if self.cycle <= 256 {
                         if self.mask.show_background() && (self.cycle > 8 || self.mask.show_background_leftmost()) {
@@ -120,18 +113,13 @@ impl PPU {
                     }
 
                     if self.mask.show_sprite() || self.mask.show_background() {
-                        if self.cycle % 8 == 0 && (self.cycle <= 256 || self.cycle >= 328) { self.addr.coarse_x_increment(); }
+                        if self.cycle % 8 == 0 && self.cycle <= 256 { self.addr.coarse_x_increment(); }
                         if self.cycle == 256 { self.addr.coarse_y_increment(); }
-                        if self.cycle >= 257 && self.cycle <= 321{ self.addr.set_horizontal(self.temp); }
+                        if self.cycle >= 257 && self.cycle < 321 { self.addr.set_horizontal(self.temp); }
                     }
-
                 }
             },
-            240 => {
-                // Post-render
-            },
-            241..=u16::MAX => {
-                // Vertical Blank Lines
+            240..=u16::MAX => {
                 if self.scanline == 241 && self.cycle == 1 { 
                     self.status.update(self.status.bits() | 0x80);
                     if self.ctrl.generate_nmi() { (*interrupt) = Interrupt::NMI; }

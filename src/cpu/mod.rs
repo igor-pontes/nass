@@ -49,7 +49,6 @@ impl CPU {
 
     pub fn step(&mut self, interrupt: &mut Interrupt) {
 
-        // if self.pc == 0x828c { log("WORKING?."); panic!(""); }
         self.odd_cycle = !self.odd_cycle;
         
         if (*interrupt) == Interrupt::NMI {

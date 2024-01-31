@@ -1,9 +1,9 @@
+
 pub struct Frame {
     pub width: usize,
     pub height: usize,
     pub index: usize,
-    frame: Box<[u8; 256*240]>,
-    temp: Box<[u8; 256*240]>
+    frame: [u8; 256*240],
 }
 
 impl Frame {
@@ -13,8 +13,7 @@ impl Frame {
             width: 256,
             height: 240,
             index: 0,
-            frame: Box::new([0; 256*240]),
-            temp: Box::new([0; 256*240]),
+            frame: [0; 256*240],
         }
     }
 
