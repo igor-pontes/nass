@@ -7,7 +7,9 @@ use {
 
 #[wasm_bindgen]
 extern {
-    #[wasm_bindgen(js_namespace = console)] fn log(s: &str); }
+    #[wasm_bindgen(js_namespace = console)] 
+    fn log(s: &str); 
+}
 
 // CPU cyles per frame
 const CYCLES_PER_FRAME: usize = 29780;

@@ -4,9 +4,9 @@ bitflags! {
     #[derive(Debug)]
     pub struct PPUStatus: u8 {
         //TODO: PPU open bus.
-        const SPRITE_OVERFLOW = 0b00100000;
-        const SPRITE_HIT = 0b01000000;
-        const VERTICAL_BLANK = 0b10000000;
+        const SPRITE_OVERFLOW   = 0b00100000;
+        const SPRITE_HIT        = 0b01000000;
+        const VERTICAL_BLANK    = 0b10000000;
     }
 }
 

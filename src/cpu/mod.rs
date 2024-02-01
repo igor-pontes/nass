@@ -26,7 +26,6 @@ pub struct CPU {
     pub cycle: usize,
     pub bus: BUS,
     pub odd_cycle: bool,
-    // pub skip_cycles: usize,
     pub debug: bool,
 }
 
@@ -43,7 +42,6 @@ impl CPU {
             bus,
             cycle: 0,
             odd_cycle: true,
-            // skip_cycles: 0
         }
     }
 
@@ -136,7 +134,9 @@ impl CPU {
 
     fn jsr(&mut self, opcode: u8) -> bool {
         if opcode == 0x20 {
-            let return_addr = self.pc+3;
+            // let return_addr = self.pc+3;
+            // Pushes the address (minus one) of the return point on to the stack.
+            let return_addr = self.pc+2;
             self.push_stack(((return_addr & 0xFF00) >> 8) as u8);
             self.push_stack((return_addr & 0x00FF) as u8);
             let value = self.get_address_mode(&AddressingMode::Absolute, opcode);
@@ -168,12 +168,12 @@ impl CPU {
             },
             AddressingMode::ZeropageX => {
                 self.pc += 1;
-                let addr = self.bus.read(self.pc).wrapping_add(self.x);
+                let addr = self.bus.read(self.pc).wrapping_add(self.x) & 0xFF;
                 addr as u16
             },
             AddressingMode::ZeropageY => {
                 self.pc += 1;
-                let addr = self.bus.read(self.pc).wrapping_add(self.y);
+                let addr = self.bus.read(self.pc).wrapping_add(self.y) & 0xFF;
                 addr as u16
             },
             AddressingMode::AbsoluteX => {
@@ -181,7 +181,6 @@ impl CPU {
                 let addr = self.read_address(self.pc);
                 self.pc += 1;
                 let addr_x = addr.wrapping_add(self.x as u16);
-                // STA do not increment 1 cycle if page crossed.
                 if inst != 0x99 { self.set_page_crossed(addr, addr_x, 1); }
                 addr_x
             },
@@ -195,13 +194,13 @@ impl CPU {
             },
             AddressingMode::IndirectX => {
                 self.pc += 1;
-                let addr = self.bus.read(self.pc).wrapping_add(self.x) as u16;
+                let addr = self.bus.read(self.pc).wrapping_add(self.x.into()) as u16;
                 self.bus.read(addr & 0xFF) as u16 | (self.bus.read(addr.wrapping_add(1) & 0xFF) as u16) * 0x100
             },
             AddressingMode::IndirectY => {
                 self.pc += 1;
                 let addr = self.bus.read(self.pc) as u16;
-                let addr_y = ( self.bus.read(addr) as u16 | self.bus.read(addr.wrapping_add(1) & 0xFF) as u16 * 0x100 ).wrapping_add(self.y as u16);
+                let addr_y = (self.bus.read(addr) as u16 | ((self.bus.read(addr.wrapping_add(1) & 0xFF) as u16) * 0x100)).wrapping_add(self.y as u16);
                 if inst != 0x91 { self.set_page_crossed(addr, addr_y, 1); }
                 addr_y
             },
@@ -312,13 +311,13 @@ impl CPU {
             match inst {
                 ASL => {
                     if opcode == 0x0A {
-                        self.set_c(if ((self.a & 0x80) >> 7) > 0 { true } else { false });
-                        self.a = self.a << 1;
+                        self.set_c(if self.a & 0x80 == 0x80 { true } else { false });
+                        self.a <<= 1;
                         self.set_zn(self.a);
                     } else {
                         let mut operand = self.bus.read(value);
-                        self.set_c(if ((operand & 0x80) >> 7) > 0 { true } else { false });
-                        operand = operand << 1;
+                        self.set_c(if operand & 0x80 == 0x80 { true } else { false });
+                        operand <<= 1;
                         self.bus.write(value, operand);
                         self.set_zn(operand);
                     }
@@ -340,13 +339,13 @@ impl CPU {
                 },
                 LSR => {
                     if opcode == 0x4A {
-                        self.set_c(if self.a & 0x1 > 0 { true } else { false });
-                        self.a = self.a >> 1;
+                        self.set_c(if self.a & 0x1 == 1 { true } else { false });
+                        self.a >>= 1;
                         self.set_zn(self.a);
                     } else {
                         let mut operand = self.bus.read(value);
-                        self.set_c(if operand & 0x1 > 0 { true } else { false });
-                        operand = operand >> 1;
+                        self.set_c(if operand & 0x1 == 1 { true } else { false });
+                        operand >>= 1;
                         self.bus.write(value, operand);
                         self.set_zn(operand);
                     }
@@ -409,9 +408,12 @@ impl CPU {
                     self.set_v(operand & 0x40);
                     self.set_z((operand & self.a) == 0);
                 },
-                JMP | _JMP => {
+                JMP  => {
                     self.pc = value - 1;
                 },
+                _JMP => {
+                    self.pc = self.read_address(value) - 1;
+                }
                 STY => {
                     self.bus.write(value, self.y);
                 },
@@ -453,7 +455,7 @@ impl CPU {
                 self.push_stack((ret_addr & 0x00FF) as u8);
                 self.push_stack(self.p | 0x10);
                 // The status register will be pushed to the stack with the break flag set to 1.
-                self.pc = self.read_address(IRQ_VECTOR)-1;
+                self.pc = self.read_address(IRQ_VECTOR) - 1;
                 self.p |= 0x04; 
             },
             TXA => {
@@ -478,10 +480,9 @@ impl CPU {
             RTI => {
                 self.p = self.pull_stack();
                 self.pc = ((self.pull_stack() as u16) | ((self.pull_stack() as u16) * 0x100)) - 1;
-                // if temp == 0x81a6 { log(&format!("SP: {:#04x} | A: {:#06x} | X: {:#06x} | Y: {:#06x} | NEW_PC: {:#06x} | S: {:#010b}", self.s, self.a, self.x, self.y, self.pc + 1, self.p)); panic!(); }
             },
             RTS => {
-                self.pc = ((self.pull_stack() as u16) | (self.pull_stack() as u16 * 0x100)) - 1;
+                self.pc = (self.pull_stack() as u16) | (self.pull_stack() as u16 * 0x100);
             },
             PHP => {
                 self.push_stack(self.p | 0x30);
