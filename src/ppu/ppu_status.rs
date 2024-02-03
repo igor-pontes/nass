@@ -12,14 +12,41 @@ bitflags! {
 
 impl PPUStatus {
     pub fn new() -> Self {
-        PPUStatus::from_bits_truncate(0b00000000)
+        PPUStatus::empty()
     }
+
     pub fn update(&mut self, data: u8) {
         *self = PPUStatus::from_bits_truncate(data);
     }
-    pub fn nmi_status(&self) -> bool {
+
+    pub fn vblank_status(&self) -> bool {
         self.intersects(PPUStatus::VERTICAL_BLANK)
     }
+
+    pub fn set_vblank(&mut self) {
+        self.update(self.bits() | 0x80);
+    }
+
+    pub fn clear_vblank(&mut self) {
+        self.update(self.bits() | 0x80);
+    }
+
+    pub fn set_sprite_hit(&mut self) {
+        self.update(self.bits() | 0x40);
+    }
+
+    pub fn clear_sprite_hit(&mut self) {
+        self.update(self.bits() & !0x40);
+    }
+
+    pub fn set_overflow(&mut self) {
+        self.update(self.bits() | 0x20);
+    }
+
+    pub fn clear_overflow(&mut self) {
+        self.update(self.bits() & !0x20);
+    }
+
     pub fn sprite_overflow(&self) -> bool {
         self.intersects(PPUStatus::SPRITE_OVERFLOW)
     }

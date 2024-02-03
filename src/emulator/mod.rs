@@ -28,6 +28,7 @@ pub struct Emulator {
     ppu: Rc<RefCell<PPU>>,
     interrupt: Interrupt,
     cycles: usize,
+    debug_cycles: usize,
 }
 
 impl Emulator {
@@ -42,8 +43,8 @@ impl Emulator {
             ppu,
             interrupt: Interrupt::DISABLED,
             cycles: 0,
-    }
-
+            debug_cycles: 1,
+        }
     }
     pub fn reset(&mut self) {
         self.cpu.reset();
@@ -53,8 +54,17 @@ impl Emulator {
         self.ppu.borrow().frame.get_pointer()
     }
 
+    pub fn get_palette_pointer(&self) -> *const u8 {
+        self.ppu.borrow().palette_table.as_ptr()
+    }
+
     pub fn step(&mut self) {
         while self.cycles <= CYCLES_PER_FRAME {
+            if self.debug_cycles == 0 {
+                // log("END OF DEBUG.");
+                // panic!();
+            }
+
             if self.cpu.bus.suspend { 
                 if self.cpu.odd_cycle {
                     self.cpu.cycle += 513;
@@ -63,12 +73,18 @@ impl Emulator {
                 }
                 self.cpu.bus.suspend = false;
             }
+            if self.ppu.borrow().nmi_ocurred {
+                self.interrupt = Interrupt::NMI;
+                self.ppu.borrow_mut().nmi_ocurred = false;
+            }
             self.cpu.step(&mut self.interrupt);
-            self.ppu.borrow_mut().step(&mut self.interrupt); 
-            self.ppu.borrow_mut().step(&mut self.interrupt); 
-            self.ppu.borrow_mut().step(&mut self.interrupt); 
+            self.ppu.borrow_mut().step(); 
+            self.ppu.borrow_mut().step(); 
+            self.ppu.borrow_mut().step(); 
+
             if self.cycles == CYCLES_PER_FRAME { 
                 self.cycles = 0; 
+                self.debug_cycles -= 1;
                 break; 
             }
             self.cycles += 1;

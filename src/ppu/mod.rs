@@ -5,7 +5,6 @@ mod control_register;
 mod ppu_mask;
 mod ppu_status;
 use crate::frame::Frame;
-use crate::Interrupt;
 use crate::mapper::*;
 pub use self::addr_register::AddrRegister;
 pub use self::control_register::ControlRegister;
@@ -13,11 +12,21 @@ pub use self::ppu_mask::PPUMask;
 pub use self::ppu_status::PPUStatus;
 use crate::mapper::Mirroring;
 
+use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen]
+extern {
+    #[wasm_bindgen(js_namespace = console)]
+    fn log(s: &str);
+}
+
 pub struct PPU {
     pub mapper: Rc<RefCell<Box<dyn Mapper>>>,
     pub palette_table: [u8; 0x20],
     pub vram: [u8; 0x800], // Nametables (2kB)
     pub oam_data: [u8; 0x100],
+    oam_secondary: ([u8; 0x20], usize, bool),
+    current_sprite: ((u8,u8,u8,u8), bool),
     pub oam_addr: u8,
     addr: AddrRegister,
     temp: u16,
@@ -30,15 +39,19 @@ pub struct PPU {
     pub cycle: usize,
     odd_frame: bool,
     pub frame: Frame,
+    pub nmi_ocurred: bool,
+    debug: usize,
 }
 
 impl PPU {
-    pub fn new(mapper: Rc<RefCell<Box<dyn Mapper>>> ) -> Self {
+    pub fn new(mapper: Rc<RefCell<Box<dyn Mapper>>>) -> Self {
         PPU {
             palette_table: [0; 0x20],
             mapper,
             vram: [0; 0x800],
             oam_data: [0; 0x100],
+            oam_secondary: ([0; 0x20], 0, false),
+            current_sprite: ((0,0,0,0), false),
             oam_addr: 0x0,
             addr: AddrRegister::new(),
             temp: 0x0,
@@ -51,22 +64,26 @@ impl PPU {
             cycle: 0x0,
             odd_frame: false,
             frame: Frame::new(),
+            nmi_ocurred: false,
+            debug: 5,
         }
     }
 
-    pub fn step(&mut self, interrupt: &mut Interrupt )  {
-        let mut color_bg = 0;
+    pub fn step(&mut self)  {
         match self.scanline {
             261 => {
                 if self.cycle > 0 {
                     if self.cycle == 1 { 
-                        self.status.update(self.status.bits() & !0x80);
+                        self.status.clear_vblank();
+                        self.status.clear_overflow();
+                        self.status.clear_sprite_hit();
                     }
 
                     if self.mask.show_background() || self.mask.show_sprite() { 
                         if self.cycle % 8 == 0 && self.cycle <= 256 { self.addr.coarse_x_increment(); }
                         if self.cycle == 256 { self.addr.coarse_y_increment(); }
-                        if self.cycle >= 257 && self.cycle < 321 { self.addr.set_horizontal(self.temp); }
+                        // if self.cycle >= 257 && self.cycle < 321 { self.addr.set_horizontal(self.temp); }
+                        if self.cycle == 257 { self.addr.set_horizontal(self.temp); }
                         if self.cycle >= 280 && self.cycle <= 304 { self.addr.set_vertical(self.temp); }
                     }
 
@@ -80,6 +97,7 @@ impl PPU {
             0..=239 => {
                 if self.cycle > 0 {
                     if self.cycle <= 256 {
+                        let mut color = 0;
                         if self.mask.show_background() && (self.cycle > 8 || self.mask.show_background_leftmost()) {
                             let v = self.addr.get();
                             let fine_x = 8 - (self.fine_x + ((self.cycle as u8) % 8));
@@ -91,7 +109,7 @@ impl PPU {
                             let attr_addr = 0x23C0 | (v & 0x0C00) | ((v >> 4) & 0x38) | ((v >> 2) & 0x07);
                             let attr_data = self.vram[self.mirror_vram_addr(attr_addr) as usize];
 
-                            let half_pattern_table = if self.ctrl.get_background_pattern_addr() { 0x1000 } else { 0 };
+                            let half_pattern_table = self.ctrl.get_background_pattern_addr();
                             let color_addr_0 = half_pattern_table | (tile as u16) << 4 | 0 << 3 | fine_y;
                             let color_addr_1 = half_pattern_table | (tile as u16) << 4 | 1 << 3 | fine_y;
                             let color_bit_0 = ( self.mapper.borrow().read_chr(color_addr_0) >> fine_x) & 0x1;
@@ -101,28 +119,26 @@ impl PPU {
                             let tile_column = (v & 0x001f) as u8;
                             let tile_row = ((v & 0x03e0) >> 5) as u8;
                             let quadrant = (tile_row & 0x2) + ((tile_column & 0x2) >> 1);
-                            let attr_color = (attr_data & (0x3 << (quadrant * 2))) >> (quadrant * 2);
-                            color_bg = self.palette_table[(attr_color << 2 | color_tile) as usize];
+                            let quadrant_offset = quadrant * 2;
+                            let attr_color = (attr_data & (0x3 << quadrant_offset)) >> quadrant_offset;
+                            color = self.palette_table[(attr_color << 2 | color_tile) as usize];
                         }
-                    
-                        if self.mask.show_sprite() && (self.cycle > 8 || self.mask.show_sprite_leftmost()) {
-                            // todo
-                        }
-
-                        self.frame.set_pixel(color_bg);
+                        
+                        self.frame.set_pixel(color);
                     }
 
                     if self.mask.show_sprite() || self.mask.show_background() {
                         if self.cycle % 8 == 0 && self.cycle <= 256 { self.addr.coarse_x_increment(); }
                         if self.cycle == 256 { self.addr.coarse_y_increment(); }
-                        if self.cycle >= 257 && self.cycle < 321 { self.addr.set_horizontal(self.temp); }
+                        // if self.cycle >= 257 && self.cycle < 321 { self.addr.set_horizontal(self.temp); }
+                        if self.cycle == 257 { self.addr.set_horizontal(self.temp); }
                     }
                 }
             },
             240..=u16::MAX => {
                 if self.scanline == 241 && self.cycle == 1 { 
-                    self.status.update(self.status.bits() | 0x80);
-                    if self.ctrl.generate_nmi() { (*interrupt) = Interrupt::NMI; }
+                    self.status.set_vblank();
+                    if self.ctrl.generate_nmi() { self.nmi_ocurred = true; }
                 }
             }
         }
@@ -155,7 +171,11 @@ impl PPU {
     }
 
     pub fn write_to_ctrl(&mut self, value: u8) {
+        let before_nmi_status = self.ctrl.generate_nmi();
         self.ctrl.update(value, &mut self.temp);
+        if !before_nmi_status && self.ctrl.generate_nmi() && self.status.vblank_status() {
+            self.nmi_ocurred = true;
+        }
     }
 
     pub fn write_to_ppu_mask(&mut self, value: u8) {
@@ -164,6 +184,11 @@ impl PPU {
 
     fn increment_vram_addr(&mut self) {
         self.addr.increment(self.ctrl.vram_addr_increment());
+    }
+
+    pub fn read_oam(&self) -> u8 {
+        // if !self.oam_secondary.2 { 0xFF } else { self.oam_data[self.oam_addr as usize] }
+        self.oam_data[self.oam_addr as usize]
     }
 
     pub fn write_to_oam_addr(&mut self, value: u8) {
@@ -186,11 +211,21 @@ impl PPU {
                 self.vram[self.mirror_vram_addr(addr) as usize] = value;
             },
             0x3000..=0x3EFF => {
-                let addr = addr - 0x1000;
+                let addr = addr & 0x2EFF;
                 self.vram[self.mirror_vram_addr(addr) as usize] = value;
             },
             0x3F00..=0x3FFF => {
-                self.palette_table[(addr & 0x1F) as usize] = value;
+                // if self.debug == 0 {
+                //     log(&format!("Addr: {:#06x} | Value: {:#04x} | Addr: {:#06x}", addr, value, self.addr.get()));
+                //     panic!();
+                // }
+                // self.debug -= 1;
+                let mut addr = addr & 0x1F;
+                self.palette_table[addr as usize] = value;
+                if addr % 4 == 0 { 
+                    addr = (addr + 0x10) & 0x1F; 
+                    self.palette_table[addr as usize] = value;
+                }
             }
             _ => panic!("unexpected access to mirrored space {}", addr)
         }
@@ -211,13 +246,14 @@ impl PPU {
                 result
             },
             0x3000..=0x3EFF => {
-                let addr = addr - 0x1000;
+                let addr = addr & 0x2EFF;
                 let result = self.internal_data_buff;
                 self.internal_data_buff = self.vram[self.mirror_vram_addr(addr) as usize];
                 result
             },
             0x3F00..=0x3FFF => {
-                self.palette_table[(addr & 0x1F) as usize]
+                let addr = addr & 0x1F;
+                self.palette_table[addr as usize]
             }
             _ => panic!("unexpected access to mirrored space {}", addr)
         }
@@ -227,7 +263,7 @@ impl PPU {
         let mirrored_vram = addr & 0x2FFF;
         let vram_index = mirrored_vram - 0x2000;
         let name_table = vram_index / 0x400;
-        let mirroring = unsafe { (*self.mapper.as_ptr()).get_mirroring() };
+        let mirroring = self.mapper.borrow().get_mirroring();
         // 00b - 1-screen mirroring (nametable 0)
         // 01b - 1-screen mirroring (nametable 1)
         match (mirroring, name_table) {

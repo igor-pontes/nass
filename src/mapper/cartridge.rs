@@ -7,7 +7,7 @@ extern {
     fn log(s: &str);
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub enum Mirroring {
     OneScreenUpper,
     OneScreenLower,

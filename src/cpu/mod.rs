@@ -1,6 +1,8 @@
 mod bus;
 mod instructions;
+mod status_register;
 pub use self::bus::BUS;
+use status_register::*;
 use crate::Interrupt;
 use crate::cpu::instructions::*;
 
@@ -22,7 +24,7 @@ pub struct CPU {
     y: u8, // register y
     pub pc: u16, // Program counter
     s: u8, // Stack pointer (It indexes into a 256-byte stack at $0100-$01FF.)
-    p: u8, // Status Register (flags)
+    status: StatusRegister, // Status Register (flags)
     pub cycle: usize,
     pub bus: BUS,
     pub odd_cycle: bool,
@@ -38,7 +40,7 @@ impl CPU {
             pc: 0,
             debug: false,
             s: 0xFF,
-            p: 0x34, // 0011 0100 (IRQ disabled)
+            status: StatusRegister::new(),
             bus,
             cycle: 0,
             odd_cycle: true,
@@ -66,50 +68,38 @@ impl CPU {
         }
 
         if self.debug { 
-            log(&format!("pc: {:#06x} | cycle: {:#06x} | A: {:#06x} | X: {:#06x} | Y: {:#06x} | s: {:#06x} | p: {:#010b} ({:#04x})", self.pc, self.cycle, self.a, self.x, self.y, self.s, self.p, self.p)); 
+            let status = self.status.bits();
+            log(&format!("pc: {:#06x} | cycle: {:#06x} | A: {:#06x} | X: {:#06x} | Y: {:#06x} | s: {:#06x} | p: {:#010b} ({:#04x})", self.pc, self.cycle, self.a, self.x, self.y, self.s, status, status)); 
         }
 
         self.pc += 1;
     }
 
     pub fn reset(&mut self) {
-        self.a = 0;
-        self.x = 0;
-        self.y = 0;
-        self.p = 0x44;
-        self.pc = 0;
-        self.s = 0xFD;
+        // self.status.set_interrupt_disable(true);
+        // self.s -= 3;
         self.pc = self.read_address(RESET_VECTOR);
     }
 
     fn execute_nmi(&mut self) {
+        // self.debug = true;
         self.push_stack(((self.pc & 0xFF00) >> 8) as u8);
         self.push_stack((self.pc & 0x00FF) as u8);
-        self.push_stack(self.p);
+        self.push_stack(self.status.bits() & !0x10);
         self.pc = self.read_address(NMI_VECTOR);
     }
 
     fn execute_relative(&mut self, opcode: u8) -> bool { 
-        // OBS: Subtract one from self.pc here because "step()" function already addds one to the
-        // program counter.
-        
-        // 000 10000 - Branch on N=0 (self.p & 0x80 = 0)
-        // 001 10000 - Branch on N=1 (self.p & 0x80 = 1)
-        // 010 10000 - Branch on V=0 (self.p & 0x40 = 0)
-        // 011 10000 - Branch on V=1 (self.p & 0x40 = 1)
-        // 100 10000 - Branch on C=0 (self.p & 0x01 = 0)
-        // 101 10000 - Branch on C=1 (self.p & 0x01 = 1)
-        // 110 10000 - Branch on Z=0 (self.p & 0x02 = 0) [BNE] (inst = 3, cond = 0)
-        // 111 10000 - Branch on Z=1 (self.p & 0x02 = 1) [BEQ] (inst = 3, cond = 1)
-        
-        let status = [(0x80 & self.p) >> 7, (0x40 & self.p) >> 6, 0x01 & self.p, (0x02 & self.p) >> 1];
+        // OBS: Subtract one from self.pc here because "step()" function adds one to the program counter.
+        let status = self.status.bits();
+        let status = [(0x80 & status) >> 7, (0x40 & status) >> 6, 0x01 & status, (0x02 & status) >> 1];
 
         if (opcode & 0x1F) == 0x10 {
             let cond = (opcode & 0x20) >> 5;
             let inst = (opcode & 0xC0) >> 6;
 
             if status[inst as usize] == cond {
-                if self.debug { log(&format!("[BRANCH_IN] inst: {} | cond: {} | status: {:#010b} | Y: {:#04x} | X: {:#04x} | cond == status: {}", inst, cond, self.p, self.y, self.x, status[inst as usize] == cond)); }
+                if self.debug { log(&format!("[BRANCH_IN] [{:#06x}] | cond: {} | status: {:#010b} | Y: {:#04x} | X: {:#04x} | cond == status: {}", self.pc, cond, self.status.bits(), self.y, self.x, status[inst as usize] == cond)); }
                 let offset = self.bus.read(self.pc + 1) as i8;
                 let old_pc = self.pc + 2;
                 let (new_pc, _) = old_pc.overflowing_add_signed(offset as i16);
@@ -117,7 +107,7 @@ impl CPU {
                 self.set_page_crossed(self.pc, new_pc, 1);
                 self.pc = new_pc - 1;
             } else { 
-                if self.debug { log(&format!("[BRANCH_OUT] inst: {} | cond: {} | status: {:#010b} | Y: {:#04x} | X: {:#04x} | cond == status: {}", inst, cond, self.p, self.y, self.x, status[inst as usize] == cond)); }
+                if self.debug { log(&format!("[BRANCH_OUT] [{:#06x}] | cond: {} | status: {:#010b} | Y: {:#04x} | X: {:#04x} | cond == status: {}", self.pc, cond, self.status.bits(), self.y, self.x, status[inst as usize] == cond)); }
                 self.pc += 2 - 1; // next instruction
             }
             true
@@ -134,7 +124,6 @@ impl CPU {
 
     fn jsr(&mut self, opcode: u8) -> bool {
         if opcode == 0x20 {
-            // let return_addr = self.pc+3;
             // Pushes the address (minus one) of the return point on to the stack.
             let return_addr = self.pc+2;
             self.push_stack(((return_addr & 0xFF00) >> 8) as u8);
@@ -152,73 +141,73 @@ impl CPU {
         match addr_mode {
             AddressingMode::Immediate => {
                 self.pc += 1;
-                let addr = self.pc;
-                addr
+                self.pc
             },
             AddressingMode::Absolute => {
                 self.pc += 1;
-                let addr = self.read_address(self.pc);
+                let operand = self.read_address(self.pc);
                 self.pc += 1;
-                addr
+                operand
             },
             AddressingMode::Zeropage => {
                 self.pc += 1;
-                let addr = self.bus.read(self.pc);
-                addr as u16
+                let operand = self.bus.read(self.pc);
+                operand.into()
             },
             AddressingMode::ZeropageX => {
                 self.pc += 1;
-                let addr = self.bus.read(self.pc).wrapping_add(self.x) & 0xFF;
-                addr as u16
+                let operand = self.bus.read(self.pc).wrapping_add(self.x) & 0xFF;
+                operand.into()
             },
             AddressingMode::ZeropageY => {
                 self.pc += 1;
-                let addr = self.bus.read(self.pc).wrapping_add(self.y) & 0xFF;
-                addr as u16
+                let operand = self.bus.read(self.pc).wrapping_add(self.y) & 0xFF;
+                operand.into()
             },
             AddressingMode::AbsoluteX => {
                 self.pc += 1;
                 let addr = self.read_address(self.pc);
                 self.pc += 1;
-                let addr_x = addr.wrapping_add(self.x as u16);
-                if inst != 0x99 { self.set_page_crossed(addr, addr_x, 1); }
-                addr_x
+                let operand = addr.wrapping_add(self.x as u16);
+                if inst != 0x99 { self.set_page_crossed(addr, operand, 1); }
+                operand
             },
             AddressingMode::AbsoluteY => {
                 self.pc += 1;
                 let addr = self.read_address(self.pc);
                 self.pc += 1;
-                let addr_y = addr.wrapping_add(self.y as u16);
-                if inst != 0x99 { self.set_page_crossed(addr, addr_y, 1); }
-                addr_y
+                let operand = addr.wrapping_add(self.y as u16);
+                if inst != 0x99 { self.set_page_crossed(addr, operand, 1); }
+                operand
             },
             AddressingMode::IndirectX => {
                 self.pc += 1;
-                let addr = self.bus.read(self.pc).wrapping_add(self.x.into()) as u16;
-                self.bus.read(addr & 0xFF) as u16 | (self.bus.read(addr.wrapping_add(1) & 0xFF) as u16) * 0x100
+                let arg = (self.bus.read(self.pc) + self.x) as u16;
+                let operand = self.bus.read(arg & 0xFF) as u16 | (self.bus.read((arg + 1) & 0xFF) as u16) * 0x100;
+                operand
             },
             AddressingMode::IndirectY => {
                 self.pc += 1;
-                let addr = self.bus.read(self.pc) as u16;
-                let addr_y = (self.bus.read(addr) as u16 | ((self.bus.read(addr.wrapping_add(1) & 0xFF) as u16) * 0x100)).wrapping_add(self.y as u16);
-                if inst != 0x91 { self.set_page_crossed(addr, addr_y, 1); }
-                addr_y
+                let arg = self.bus.read(self.pc) as u16;
+                let addr = self.bus.read(arg) as u16 | ((self.bus.read(arg.wrapping_add(1) & 0xFF) as u16) * 0x100);
+                let operand = addr.wrapping_add(self.y as u16);
+                if inst != 0x91 { self.set_page_crossed(addr, operand, 1); }
+                operand
             },
             AddressingMode::ZeropageIndexed => {
                 self.pc += 1;
-                let addr = self.bus.read(self.pc);
+                let operand = self.bus.read(self.pc);
                 let index = if inst == 0xB6 || inst == 0x96 { self.y } else { self.x };
-                addr.wrapping_add(index) as u16
+                operand.wrapping_add(index).into()
             },
             AddressingMode::AbsoluteIndexed => {
                 self.pc += 1;
                 let addr = self.read_address(self.pc);
                 self.pc += 1;
                 let index = if inst == 0xB6 || inst == 0x96 { self.y as u16 } else { self.x as u16 };
-                let value = addr.wrapping_add(index);
-                self.set_page_crossed(addr, value, 1);
-                let addr = addr.wrapping_add(index);
-                addr
+                let operand = addr.wrapping_add(index);
+                self.set_page_crossed(addr, operand, 1);
+                operand
             },
             _ => 0
         }
@@ -236,58 +225,55 @@ impl CPU {
                 Err(_) => return false
             };
             if self.debug { log(&format!("---- {inst:?} [{temp:#06x}] | VALUE(addr): {value:#06x} ----")); }
+
+            let add = |value, carry| {
+                let (sum, c1) = self.a.overflowing_add(value);
+                let (sum, c2) = sum.overflowing_add(carry);
+                (sum, c1 || c2)
+            };
+
             match inst {
                 ORA => {
                     self.a |= self.bus.read(value);
-                    self.set_zn(self.a);
+                    self.status.set_zero_negative(self.a);
                 },
                 AND => {
                     self.a &= self.bus.read(value);
-                    self.set_zn(self.a);
+                    self.status.set_zero_negative(self.a);
                 },
                 EOR => {
                     self.a ^= self.bus.read(value);
-                    self.set_zn(self.a);
+                    self.status.set_zero_negative(self.a);
                 },
                 ADC => {
-                    let carry = self.p & 0x1;
+                    let carry = self.status.bits() & 0x1;
                     let value = self.bus.read(value);
-                    let (sum, c1) = self.a.overflowing_add(value);
-                    let (sum, c2) = sum.overflowing_add(carry);
-                    self.set_c(c1 || c2);
-                    // http://www.c-jump.com/CIS77/CPU/Overflow/lecture.html (Overflow Condition (signed))
-                    // Shift right to place on Status register
-                    self.set_v(((self.a ^ sum) & (value ^ sum) & 0x80) >> 1);
+                    let (sum, carry) = add(value, carry);
+                    self.status.set_carry(carry);
+                    self.status.set_overflow(((self.a ^ sum) & (value ^ sum) & 0x80) != 0);
                     self.a = sum;
-                    self.set_zn(self.a);
+                    self.status.set_zero_negative(self.a);
                 },
-                STA => {
-                    self.bus.write(value, self.a)
-                },
+                STA => self.bus.write(value, self.a),
                 LDA => {
                     self.a = self.bus.read(value);
-                    self.set_zn(self.a);
+                    self.status.set_zero_negative(self.a);
                 },
                 CMP => {
                     let value = self.bus.read(value);
-                    let _value = value;
                     let sum = self.a.wrapping_sub(value);
-                    self.set_c(self.a >= value);
-                    self.set_z(self.a == value);
-                    self.set_n(if sum & 0x80 > 0 { true } else { false });
+                    self.status.set_carry(self.a >= value);
+                    self.status.set_zero(self.a == value);
+                    self.status.set_negative((sum & 0x80) > 0);
                 },
                 SBC => {
+                    let carry = self.status.bits() & 0x1;
                     let value = self.bus.read(value);
-                    let carry = self.p & 0x1 ^ 0x1; // NOT(c)
-                    // https://github.com/rust-lang/rust/blob/cc946fcd326f7d85d4af096efdc73538622568e9/library/core/src/num/uint_macros.rs#L1538-L1544
-                    let (sub, c1) = self.a.overflowing_sub(value);
-                    let (sub, c2) = sub.overflowing_sub(carry);
-                    self.set_c(!(c1 || c2));
-                    // http://www.righto.com/2012/12/the-6502-overflow-flag-explained.html
-                    // "!value" = One's complement of "value" 
-                    self.set_v(((self.a ^ sub) & (!value ^ sub) & 0x80) as u8 >> 1);
-                    self.a = sub;
-                    self.set_zn(self.a);
+                    let (sum, carry) = add(!value, carry);
+                    self.status.set_carry(carry);
+                    self.status.set_overflow(((self.a ^ sum) & (value ^ sum) & 0x80) > 1);
+                    self.a = sum;
+                    self.status.set_zero_negative(self.a);
                 },
             };
             true
@@ -311,76 +297,74 @@ impl CPU {
             match inst {
                 ASL => {
                     if opcode == 0x0A {
-                        self.set_c(if self.a & 0x80 == 0x80 { true } else { false });
+                        self.status.set_carry((self.a & 0x80) > 0);
                         self.a <<= 1;
-                        self.set_zn(self.a);
+                        self.status.set_zero_negative(self.a);
                     } else {
                         let mut operand = self.bus.read(value);
-                        self.set_c(if operand & 0x80 == 0x80 { true } else { false });
+                        self.status.set_carry((operand & 0x80) > 0);
                         operand <<= 1;
+                        self.status.set_zero_negative(operand);
                         self.bus.write(value, operand);
-                        self.set_zn(operand);
                     }
                 },
                 ROL => {
                     if opcode == 0x2A {
-                        let carry = self.p & 0x1;
-                        self.set_c(if ((self.a & 0x80) >> 7) > 0 { true } else { false });
+                        let carry = self.status.bits() & 0x1;
+                        self.status.set_carry((self.a & 0x80) > 0);
                         self.a = self.a << 1 | carry;
-                        self.set_zn(self.a);
+                        self.status.set_zero_negative(self.a);
                     } else {
                         let mut operand = self.bus.read(value);
-                        let carry = self.p & 0x1;
-                        self.set_c(if ((operand & 0x80) >> 7) > 0 { true } else { false });
+                        let carry = self.status.bits() & 0x1;
+                        self.status.set_carry((operand & 0x80) > 1);
                         operand = operand << 1 | carry;
+                        self.status.set_zero_negative(operand);
                         self.bus.write(value, operand);
-                        self.set_zn(operand);
                     }
                 },
                 LSR => {
                     if opcode == 0x4A {
-                        self.set_c(if self.a & 0x1 == 1 { true } else { false });
+                        self.status.set_carry((self.a & 0x1) == 1);
                         self.a >>= 1;
-                        self.set_zn(self.a);
+                        self.status.set_zero_negative(self.a);
                     } else {
                         let mut operand = self.bus.read(value);
-                        self.set_c(if operand & 0x1 == 1 { true } else { false });
+                        self.status.set_carry((operand & 0x1) == 1);
                         operand >>= 1;
+                        self.status.set_zero_negative(operand);
                         self.bus.write(value, operand);
-                        self.set_zn(operand);
                     }
                 },
                 ROR => {
                     if opcode == 0x6A {
-                        let carry = self.p & 0x1;
-                        self.set_c(if self.a & 0x1 > 0 { true } else { false });
+                        let carry = self.status.bits() & 0x1;
+                        self.status.set_carry((self.a & 0x1) == 1);
                         self.a = self.a >> 1 | carry << 7;
-                        self.set_zn(self.a);
+                        self.status.set_zero_negative(self.a);
                     } else {
                         let mut operand = self.bus.read(value);
-                        let carry = self.p & 0x1;
-                        self.set_c(if operand & 0x1 > 0 { true } else { false });
+                        let carry = self.status.bits() & 0x1;
+                        self.status.set_carry((operand & 0x1) == 1);
                         operand = operand >> 1 | carry << 7;
+                        self.status.set_zero_negative(operand);
                         self.bus.write(value, operand);
-                        self.set_zn(operand);
                     }
                 },
-                STX => {
-                    self.bus.write(value, self.x)
-                },
+                STX => self.bus.write(value, self.x),
                 LDX => {
                     self.x = self.bus.read(value);
-                    self.set_zn(self.x);
+                    self.status.set_zero_negative(self.x);
                 },
                 DEC => {
-                    let operand = self.bus.read(value).wrapping_sub(1);
+                    let operand = (self.bus.read(value)).wrapping_sub(1);
                     self.bus.write(value, operand);
-                    self.set_zn(operand);
+                    self.status.set_zero_negative(operand);
                 },
                 INC => {
-                    let operand = self.bus.read(value).wrapping_add(1);
+                    let operand = (self.bus.read(value)).wrapping_add(1);
                     self.bus.write(value, operand);
-                    self.set_zn(operand);
+                    self.status.set_zero_negative(operand);
                 },
             }
             true
@@ -404,34 +388,28 @@ impl CPU {
             match inst {
                 BIT => {
                     let operand = self.bus.read(value);
-                    self.set_n(if operand & 0x80 > 0 { true } else { false });
-                    self.set_v(operand & 0x40);
-                    self.set_z((operand & self.a) == 0);
+                    self.status.set_negative(operand & 0x80 > 0);
+                    self.status.set_overflow(operand & 0x40 > 0);
+                    self.status.set_zero((operand & self.a) == 0);
                 },
-                JMP  => {
-                    self.pc = value - 1;
-                },
-                _JMP => {
-                    self.pc = self.read_address(value) - 1;
-                }
-                STY => {
-                    self.bus.write(value, self.y);
-                },
+                JMP  => self.pc = value - 1,
+                _JMP => self.pc = self.read_address(value) - 1,
+                STY => self.bus.write(value, self.y),
                 LDY => {
                     self.y = self.bus.read(value);
-                    self.set_zn(self.y)
+                    self.status.set_zero_negative(self.y);
                 },
                 CPY => {
                     let value = self.bus.read(value); 
                     let diff = self.y.wrapping_sub(value);
-                    self.set_c(self.y >= value);
-                    self.set_zn(diff);
+                    self.status.set_carry(self.y >= value);
+                    self.status.set_zero_negative(diff);
                 },
                 CPX => {
                     let value = self.bus.read(value); 
                     let diff = self.x.wrapping_sub(value);
-                    self.set_c(self.x >= value);
-                    self.set_zn(diff);
+                    self.status.set_carry(self.x >= value);
+                    self.status.set_zero_negative(diff);
                 }
             }
             true
@@ -453,117 +431,73 @@ impl CPU {
                 let ret_addr = self.pc + 2;
                 self.push_stack((ret_addr & 0xFF00 >> 8) as u8);
                 self.push_stack((ret_addr & 0x00FF) as u8);
-                self.push_stack(self.p | 0x10);
-                // The status register will be pushed to the stack with the break flag set to 1.
+                self.status.set_break(true); 
+                self.push_stack(self.status.bits());
                 self.pc = self.read_address(IRQ_VECTOR) - 1;
-                self.p |= 0x04; 
             },
             TXA => {
                 self.a = self.x;
-                self.set_zn(self.a);
+                self.status.set_zero_negative(self.a);
             },
             TAX => {
                 self.x = self.a;
-                self.set_zn(self.x);
+                self.status.set_zero_negative(self.x);
             },
-            TXS => {
-                self.s = self.x;
-            },
+            TXS => self.s = self.x,
             DEX => {
                 self.x -= 1;
-                self.set_zn(self.x);
+                self.status.set_zero_negative(self.x);
             },
             TSX => {
                 self.x = self.s;
-                self.set_zn(self.x);
+                self.status.set_zero_negative(self.x);
             },
             RTI => {
-                self.p = self.pull_stack();
+                let value = self.pull_stack();
+                self.status.set_effective(value);
                 self.pc = ((self.pull_stack() as u16) | ((self.pull_stack() as u16) * 0x100)) - 1;
             },
-            RTS => {
-                self.pc = (self.pull_stack() as u16) | (self.pull_stack() as u16 * 0x100);
+            RTS => self.pc = (self.pull_stack() as u16) | (self.pull_stack() as u16 ) * 0x100,
+            PHP => self.push_stack(self.status.bits() | 0x10),
+            CLC => self.status.set_carry(false),
+            PLP => { 
+                let value = self.pull_stack();
+                self.status.set_effective(value)
             },
-            PHP => {
-                self.push_stack(self.p | 0x30);
-            },
-            CLC => {
-                self.p &= 0xFE;
-            },
-            PLP => {
-                self.p = self.pull_stack();
-            },
-            SEC => {
-                self.p |= 0x01;
-            },
-            PHA => {
-                self.push_stack(self.a);
-            },
-            CLI => {
-                self.p &= 0xFB;
-            },
+            SEC => self.status.set_carry(true),
+            PHA => self.push_stack(self.a),
+            CLI => self.status.set_interrupt_disable(false),
             PLA => {
                 self.a = self.pull_stack();
-                self.set_zn(self.a);
+                self.status.set_zero_negative(self.a);
             },
-            SEI => {
-                // Set the interrupt disable flag to one.
-                self.p |= 0x04;
-            },
+            SEI => self.status.set_interrupt_disable(true),
             DEY => {
                 self.y -= 1;
-                self.set_zn(self.y);
+                self.status.set_zero_negative(self.y);
             },
             TYA => {
                 self.a = self.y;
-                self.set_zn(self.a);
+                self.status.set_zero_negative(self.a);
             },
             TAY => {
                 self.y = self.a;
-                self.set_zn(self.y);
+                self.status.set_zero_negative(self.y);
             },
-            CLV => {
-                self.p &= 0x40;
-            },
+            CLV => self.status.set_overflow(false),
             INY => {
                 self.y += 1;
-                self.set_zn(self.y)
+                self.status.set_zero_negative(self.y);
             },
-            CLD => {
-                // 11110111 
-                self.p &= 0xF7;
-            },
+            CLD => self.status.set_decimal(false),
             INX => {
                 self.x += 1;
-                self.set_zn(self.x);
+                self.status.set_zero_negative(self.x);
             },
-            SED => {
-                self.p |= 0x08;
-            },
+            SED => self.status.set_decimal(true),
             NOP => (), // Increments program counter.
         }
         true
-    }
-
-    fn set_zn(&mut self, val: u8) {
-        self.set_z(val == 0);
-        self.set_n(if val & 0x80 > 0 { true } else { false });
-    }
-
-    fn set_v(&mut self, v: u8) {
-        self.p = (self.p & 0xBF) | v;
-    }
-
-    fn set_n(&mut self, cond: bool) {
-        self.p = (self.p & 0x7F) | (cond as u8) << 7;
-    }
-
-    fn set_c(&mut self, cond: bool) {
-        self.p = (self.p & 0xFE) | (cond as u8);
-    }
-
-    fn set_z(&mut self, cond: bool) {
-        self.p = (self.p & 0xFD) | if cond { 0x02 } else { 0 };
     }
 
     fn push_stack(&mut self, val: u8) {

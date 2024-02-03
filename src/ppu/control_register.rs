@@ -15,7 +15,7 @@ bitflags! {
 
 impl ControlRegister {
     pub fn new() -> Self {
-        ControlRegister::from_bits_truncate(0b00000000)
+        ControlRegister::empty()
     }
 
     pub fn vram_addr_increment(&self) -> u8 {
@@ -33,8 +33,19 @@ impl ControlRegister {
         *temp = ( self.get_nametable() as u16 ) << 10 | *temp & 0xF3FF;
     }
 
-    pub fn get_background_pattern_addr(&self) -> bool {
-        self.intersects(ControlRegister::BACKGROUND_PATTERN_ADDR)
+    pub fn is_sprite_size_16(&self) -> bool {
+        self.intersects(ControlRegister::SPRITE_SIZE_16)
+    }
+
+    pub fn get_sprite_pattern_addr(&self) -> u16 {
+        // ignored in 8x16 mode
+        let right_table = self.intersects(ControlRegister::SPRITE_PATTERN_ADDR);
+        if right_table { 0x1000 } else { 0 }
+    }
+
+    pub fn get_background_pattern_addr(&self) -> u16 {
+        let right_table = self.intersects(ControlRegister::BACKGROUND_PATTERN_ADDR);
+        if right_table { 0x1000 } else { 0 }
     }
     
     pub fn generate_nmi(&self) -> bool {

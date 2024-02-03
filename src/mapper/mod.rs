@@ -13,7 +13,7 @@ pub trait Mapper: Debug {
     fn read_chr(&self, addr: u16) -> u8;
     fn write_prg(&mut self, addr: u16, val: u8);
     fn write_chr(&mut self, addr: u16, val: u8);
-    fn get_mirroring(&self) -> &Mirroring;
+    fn get_mirroring(&self) -> Mirroring;
 }
 
 pub fn get_mapper(mapper: u8, prg_rom: Vec<u8>, chr_rom: Vec<u8>, mirroring: Mirroring) -> Result<Box<dyn Mapper>, String> {

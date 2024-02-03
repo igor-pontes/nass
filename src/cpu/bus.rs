@@ -35,8 +35,7 @@ impl BUS {
             0x2008..=0x3FFF => self.write(addr & 0x2007, value),
             0x4014 => {
                 self.suspend = true;
-                let addr = (value as u16) << 8;
-                self.ppu.borrow_mut().write_to_oam_addr(0);
+                let addr = ((value as u16) & 0xFF) << 8;
                 for i in 0..=0xFF {
                     let value = self.read(addr+i);
                     self.write(0x2004, value);
@@ -52,6 +51,7 @@ impl BUS {
             0x0000..=0x1FFF => self.ram[addr as usize & 0x07FF],
             0x2000 | 0x2001 | 0x2003 | 0x2005 | 0x2006 | 0x4014 => { panic!("Attempt to read from write-only PPU address."); }
             0x2002 => self.ppu.borrow_mut().status(),
+            0x2004 => self.ppu.borrow_mut().read_oam(),
             0x2007 => self.ppu.borrow_mut().read_data(),
             0x2008..=0x3FFF => self.read(addr & 0x2007),
             0x4020..=0xFFFF => self.mapper.borrow().read_prg(addr),

@@ -43,3 +43,12 @@ pub fn get_frame_pointer() -> *const u8 {
     });
     pointer
 }
+
+#[wasm_bindgen]
+pub fn get_palette_pointer() -> *const u8 {
+    let pointer = EMULATOR.with_borrow_mut(|e| match e {
+        Some(e) => e.get_palette_pointer(),
+        None => { log("Emulator not initialized."); panic!(); }
+    });
+    pointer
+}

@@ -13,7 +13,7 @@ bitflags! {
 
 impl PPUMask {
     pub fn new() -> Self {
-        PPUMask::from_bits_truncate(0b00000000)
+        PPUMask::empty()
     }
 
     pub fn update(&mut self, data: u8) {

@@ -149,7 +149,7 @@ impl MMC1 {
 
 // Fix this.
 impl Mapper for MMC1 {
-    fn get_mirroring(&self) -> &Mirroring { &self.mirroring }
+    fn get_mirroring(&self) -> Mirroring { self.mirroring }
 
     fn read_chr(&self, addr: u16) -> u8 { 
         match self.chr_addr {

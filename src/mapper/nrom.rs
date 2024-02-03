@@ -33,7 +33,7 @@ impl NROM {
 }
 
 impl Mapper for NROM {
-    fn get_mirroring(&self) -> &Mirroring { &self.mirroring }
+    fn get_mirroring(&self) -> Mirroring { self.mirroring }
 
     fn read_chr(&self, addr: u16) -> u8 { 
         if addr <= 0x1fff  {
@@ -47,7 +47,6 @@ impl Mapper for NROM {
         match addr {
             0x6000..=0x7FFF => { self.prg_ram[(addr - 0x6000) as usize] },
             0x8000..=0xFFFF => { self.prg_rom[(addr - 0x8000) as usize] },
-            // _ => { log(&format!("NROM: Trying to access 0x4020 - 0x6000. Address is {addr:#06x}.")); panic!(); }
             _ => { log(&format!("NROM: Trying to access 0x4020 - 0x6000. Address is {addr:#06x}.")); 0 }
         }
     }
