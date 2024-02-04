@@ -93,12 +93,4 @@ impl AddrRegister {
     pub fn get(&self) -> u16 {
         ( ( self.value.0 as u16 ) << 8 ) | ( self.value.1 as u16 )
     }
-
-    pub fn get_coarse_y(&self) -> u8 {
-        ((self.value.0 & 0x03 ) << 5) | ((self.value.1 & 0xE0) >> 5)
-    }
-
-    pub fn get_coarse_x(&self) -> u8 {
-         self.value.1 & 0x1F
-    }
 }

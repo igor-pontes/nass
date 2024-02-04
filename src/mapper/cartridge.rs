@@ -16,11 +16,6 @@ pub enum Mirroring {
     FourScreen
 }
 
-
-pub fn raw(bytes: &Vec<u8>) -> Result<Box<dyn Mapper>, String> {
-    get_mapper(0, Vec::new(), Vec::new(), Mirroring::Horizontal)
-}
-
 pub fn new(bytes: &Vec<u8>) -> Result<Box<dyn Mapper>, String> {
     if bytes[0] == 0x4E && bytes[1] == 0x45 && bytes[2] == 0x53 && bytes[3] == 0x1A {
         if bytes[7] & 0x12 == 2 { return Err("NES 2.0 not supported(yet).".to_string()) }
@@ -41,11 +36,11 @@ pub fn new(bytes: &Vec<u8>) -> Result<Box<dyn Mapper>, String> {
         let prg_rom_start = 16 + if skip_trainer { 512 } else { 0 };
         let chr_rom_start = prg_rom_start + prg_rom_banks * 0x4000;
 
-        let prg_rom = bytes[prg_rom_start..16 + prg_rom_banks * 0x4000].to_vec();
+        let prg_rom = bytes[prg_rom_start..chr_rom_start].to_vec();
         let chr_rom = bytes[chr_rom_start..chr_rom_start + chr_rom_banks * 0x2000].to_vec();
 
         let mapper_id = (bytes[7] & 0xF0) | (bytes[6] & 0xF0) >> 4;
-        // log(&format!("Mapper: {}", mapper_id));
+
         let mapper = match get_mapper(mapper_id, prg_rom, chr_rom, mirroring) {
             Ok(mapper) => mapper,
             Err(str) => return Err(str)

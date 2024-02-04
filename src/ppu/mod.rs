@@ -25,8 +25,6 @@ pub struct PPU {
     pub palette_table: [u8; 0x20],
     pub vram: [u8; 0x800], // Nametables (2kB)
     pub oam_data: [u8; 0x100],
-    oam_secondary: ([u8; 0x20], usize, bool),
-    current_sprite: ((u8,u8,u8,u8), bool),
     pub oam_addr: u8,
     addr: AddrRegister,
     temp: u16,
@@ -40,7 +38,6 @@ pub struct PPU {
     odd_frame: bool,
     pub frame: Frame,
     pub nmi_ocurred: bool,
-    debug: usize,
 }
 
 impl PPU {
@@ -50,22 +47,19 @@ impl PPU {
             mapper,
             vram: [0; 0x800],
             oam_data: [0; 0x100],
-            oam_secondary: ([0; 0x20], 0, false),
-            current_sprite: ((0,0,0,0), false),
-            oam_addr: 0x0,
+            oam_addr: 0,
             addr: AddrRegister::new(),
-            temp: 0x0,
+            temp: 0,
             ctrl: ControlRegister::new(),
             mask: PPUMask::new(),
             status: PPUStatus::new(),
-            internal_data_buff: 0x0,
-            fine_x: 0x0,
+            internal_data_buff: 0,
+            fine_x: 0,
             scanline: 0,
-            cycle: 0x0,
+            cycle: 0,
             odd_frame: false,
             frame: Frame::new(),
             nmi_ocurred: false,
-            debug: 5,
         }
     }
 
@@ -82,15 +76,14 @@ impl PPU {
                     if self.mask.show_background() || self.mask.show_sprite() { 
                         if self.cycle % 8 == 0 && self.cycle <= 256 { self.addr.coarse_x_increment(); }
                         if self.cycle == 256 { self.addr.coarse_y_increment(); }
-                        // if self.cycle >= 257 && self.cycle < 321 { self.addr.set_horizontal(self.temp); }
                         if self.cycle == 257 { self.addr.set_horizontal(self.temp); }
                         if self.cycle >= 280 && self.cycle <= 304 { self.addr.set_vertical(self.temp); }
                     }
 
                     if (self.cycle == 339 && self.odd_frame) || self.cycle == 340 { 
-                        self.scanline = 0; self.cycle = 0; 
+                        self.scanline = 0; 
+                        self.cycle = 0; 
                         self.odd_frame = !self.odd_frame;
-                        return
                     }
                 }
             },
@@ -123,14 +116,12 @@ impl PPU {
                             let attr_color = (attr_data & (0x3 << quadrant_offset)) >> quadrant_offset;
                             color = self.palette_table[(attr_color << 2 | color_tile) as usize];
                         }
-                        
                         self.frame.set_pixel(color);
                     }
 
                     if self.mask.show_sprite() || self.mask.show_background() {
                         if self.cycle % 8 == 0 && self.cycle <= 256 { self.addr.coarse_x_increment(); }
                         if self.cycle == 256 { self.addr.coarse_y_increment(); }
-                        // if self.cycle >= 257 && self.cycle < 321 { self.addr.set_horizontal(self.temp); }
                         if self.cycle == 257 { self.addr.set_horizontal(self.temp); }
                     }
                 }
@@ -187,7 +178,6 @@ impl PPU {
     }
 
     pub fn read_oam(&self) -> u8 {
-        // if !self.oam_secondary.2 { 0xFF } else { self.oam_data[self.oam_addr as usize] }
         self.oam_data[self.oam_addr as usize]
     }
 
@@ -215,11 +205,6 @@ impl PPU {
                 self.vram[self.mirror_vram_addr(addr) as usize] = value;
             },
             0x3F00..=0x3FFF => {
-                // if self.debug == 0 {
-                //     log(&format!("Addr: {:#06x} | Value: {:#04x} | Addr: {:#06x}", addr, value, self.addr.get()));
-                //     panic!();
-                // }
-                // self.debug -= 1;
                 let mut addr = addr & 0x1F;
                 self.palette_table[addr as usize] = value;
                 if addr % 4 == 0 { 

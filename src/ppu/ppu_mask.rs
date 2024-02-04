@@ -7,7 +7,9 @@ bitflags! {
         const SHOW_SPRITE_LEFTMOST     = 0b00000100;
         const SHOW_BACKGROUND          = 0b00001000;
         const SHOW_SPRITE              = 0b00010000;
-        // TODO: Emphasize red, blue, green.
+        const EMPHASIZE_RED            = 0b00100000;
+        const EMPHASIZE_GREEN          = 0b01000000;
+        const EMPHASIZE_BLUE           = 0b10000000;
     }
 }
 

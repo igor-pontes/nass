@@ -16,7 +16,8 @@ bitflags! {
 
 impl StatusRegister {
     pub fn new() -> Self {
-        StatusRegister::from_bits_retain(0x34)
+        // StatusRegister::from_bits_retain(0x34)
+        StatusRegister::from_bits_retain(0x0)
     }
 
     fn update(&mut self, value: u8) {

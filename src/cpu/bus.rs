@@ -41,7 +41,7 @@ impl BUS {
                     self.write(0x2004, value);
                 }
             },
-            0x4020..=0xFFFF => self.mapper.borrow_mut().write_prg(addr, value),
+            0x4020..=0x7FFF => self.mapper.borrow_mut().write_prg(addr, value),
             _ => ()
         }
     }
@@ -49,6 +49,7 @@ impl BUS {
     pub fn read(&mut self, addr: u16) -> u8 { 
         match addr {
             0x0000..=0x1FFF => self.ram[addr as usize & 0x07FF],
+            // 0x2000 | 0x2001 | 0x2003 | 0x2005 | 0x2006 | 0x4014 => { panic!("Attempt to read from write-only PPU address."); }
             0x2000 | 0x2001 | 0x2003 | 0x2005 | 0x2006 | 0x4014 => { panic!("Attempt to read from write-only PPU address."); }
             0x2002 => self.ppu.borrow_mut().status(),
             0x2004 => self.ppu.borrow_mut().read_oam(),
