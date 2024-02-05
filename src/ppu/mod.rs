@@ -18,6 +18,9 @@ use wasm_bindgen::prelude::*;
 extern {
     #[wasm_bindgen(js_namespace = console)]
     fn log(s: &str);
+
+    #[wasm_bindgen(js_namespace = console)]
+    fn error(s: &str);
 }
 
 pub struct PPU {
@@ -57,13 +60,14 @@ impl PPU {
             fine_x: 0,
             scanline: 0,
             cycle: 0,
-            odd_frame: false,
+            odd_frame: true,
             frame: Frame::new(),
             nmi_ocurred: false,
         }
     }
 
     pub fn step(&mut self)  {
+        // log(&format!("Dot: {} | Scanline: {}", self.cycle, self.scanline));
         match self.scanline {
             261 => {
                 if self.cycle > 0 {
@@ -76,7 +80,7 @@ impl PPU {
                     if self.mask.show_background() || self.mask.show_sprite() { 
                         if self.cycle % 8 == 0 && self.cycle <= 256 { self.addr.coarse_x_increment(); }
                         if self.cycle == 256 { self.addr.coarse_y_increment(); }
-                        if self.cycle == 257 { self.addr.set_horizontal(self.temp); }
+                        if self.cycle >= 257 && self.cycle < 321 { self.oam_addr = 0; self.addr.set_horizontal(self.temp); }
                         if self.cycle >= 280 && self.cycle <= 304 { self.addr.set_vertical(self.temp); }
                     }
 
@@ -84,6 +88,7 @@ impl PPU {
                         self.scanline = 0; 
                         self.cycle = 0; 
                         self.odd_frame = !self.odd_frame;
+                        return;
                     }
                 }
             },
@@ -122,7 +127,7 @@ impl PPU {
                     if self.mask.show_sprite() || self.mask.show_background() {
                         if self.cycle % 8 == 0 && self.cycle <= 256 { self.addr.coarse_x_increment(); }
                         if self.cycle == 256 { self.addr.coarse_y_increment(); }
-                        if self.cycle == 257 { self.addr.set_horizontal(self.temp); }
+                        if self.cycle >= 257 && self.cycle < 321 { self.oam_addr = 0; self.addr.set_horizontal(self.temp); }
                     }
                 }
             },
@@ -133,6 +138,7 @@ impl PPU {
                 }
             }
         }
+
         self.cycle += 1;
         if self.cycle == 341 { self.scanline += 1; self.cycle = 0; }
     }
@@ -150,7 +156,7 @@ impl PPU {
         self.addr.toggle_latch();
     }
 
-    pub fn status(&mut self) -> u8 {
+    pub fn read_status(&mut self) -> u8 {
         let status = self.status.bits();
         self.status.update(status & !0x80);
         self.addr.reset_latch();
@@ -164,7 +170,7 @@ impl PPU {
     pub fn write_to_ctrl(&mut self, value: u8) {
         let before_nmi_status = self.ctrl.generate_nmi();
         self.ctrl.update(value, &mut self.temp);
-        if !before_nmi_status && self.ctrl.generate_nmi() && self.status.vblank_status() {
+        if !before_nmi_status && self.ctrl.generate_nmi() && self.status.is_vblank() {
             self.nmi_ocurred = true;
         }
     }
@@ -183,8 +189,8 @@ impl PPU {
 
     pub fn write_to_oam_addr(&mut self, value: u8) {
         self.oam_addr = value;
+
     }
-    
     pub fn write_to_oam(&mut self, value: u8) {
         self.oam_data[self.oam_addr as usize] = value;
         self.oam_addr += 1;
@@ -193,6 +199,12 @@ impl PPU {
     pub fn write_data(&mut self, value: u8) {
         let addr = self.addr.get() & 0x3FFF;
         self.increment_vram_addr();
+        // if !self.status.is_vblank() && self.mask.show_sprite() || self.mask.show_background() {
+        //     self.addr.coarse_x_increment();
+        //     self.addr.coarse_y_increment();
+        // } else {
+        //     self.increment_vram_addr();
+        // }
         match addr {
             0..=0x1FFF => {
                 self.mapper.borrow_mut().write_chr(addr, value);
@@ -206,11 +218,10 @@ impl PPU {
             },
             0x3F00..=0x3FFF => {
                 let mut addr = addr & 0x1F;
-                self.palette_table[addr as usize] = value;
-                if addr % 4 == 0 { 
-                    addr = (addr + 0x10) & 0x1F; 
-                    self.palette_table[addr as usize] = value;
+                if addr >= 0x10 && addr % 4 == 0 { 
+                    addr -= 0x10; 
                 }
+                self.palette_table[addr as usize] = value;
             }
             _ => panic!("unexpected access to mirrored space {}", addr)
         }
@@ -219,6 +230,12 @@ impl PPU {
     pub fn read_data(&mut self) -> u8 {
         let addr = self.addr.get() & 0x3FFF;
         self.increment_vram_addr();
+        // if !self.status.is_vblank() && self.mask.show_sprite() || self.mask.show_background() {
+        //     self.addr.coarse_x_increment();
+        //     self.addr.coarse_y_increment();
+        // } else {
+        //     self.increment_vram_addr();
+        // }
         match addr {
             0..=0x1FFF => {
                 let result = self.internal_data_buff;
@@ -237,7 +254,11 @@ impl PPU {
                 result
             },
             0x3F00..=0x3FFF => {
-                let addr = addr & 0x1F;
+                let mut addr = addr & 0x1F;
+                if addr >= 0x10 && addr % 4 == 0 { 
+                    addr -= 0x10; 
+                }
+                // self.internal_data_buff = self.vram[self.mirror_vram_addr(addr & 0x3EFF) as usize];
                 self.palette_table[addr as usize]
             }
             _ => panic!("unexpected access to mirrored space {}", addr)

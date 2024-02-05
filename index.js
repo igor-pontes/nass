@@ -34,9 +34,9 @@ document.getElementById("rom-input").onchange = getFile;
 const drawCells = (pointer) => {
   for (let row = 0; row < HEIGHT; row++) {
     for (let col = 0; col < WIDTH; col++) {
-      const color = COLORS[buffer[pointer + row * WIDTH + col]];
-      ctx.fillStyle = color;
-      ctx.fillRect(col * PIXEL_SIZE, row * PIXEL_SIZE, PIXEL_SIZE, PIXEL_SIZE);
+        const color = COLORS[buffer[pointer + row * WIDTH + col]];
+        ctx.fillStyle = color;
+        ctx.fillRect(col * PIXEL_SIZE, row * PIXEL_SIZE, PIXEL_SIZE, PIXEL_SIZE);
     }
   }
 }
@@ -44,9 +44,13 @@ const drawCells = (pointer) => {
 const drawPalettes = (pointer) => {
   for (let row = 0; row < 32/PALETTE_WIDTH; row++) {
     for (let col = 0; col < PALETTE_WIDTH; col++) {
-      const color = COLORS[buffer[pointer + row * PALETTE_WIDTH + col]];
-      pctx.fillStyle = color;
-      pctx.fillRect(col * PALETTE_SIZE, row * PALETTE_SIZE, PALETTE_SIZE, PALETTE_SIZE);
+        let index = row * PALETTE_WIDTH + col;
+        if (index >= 0x10 && index % 4 == 0) {
+            index -= 0x10;
+        }
+        const color = COLORS[buffer[pointer + index]];
+        pctx.fillStyle = color;
+        pctx.fillRect(col * PALETTE_SIZE, row * PALETTE_SIZE, PALETTE_SIZE, PALETTE_SIZE);
     }
   }
 }

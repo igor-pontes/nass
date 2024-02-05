@@ -19,7 +19,7 @@ impl PPUStatus {
         *self = PPUStatus::from_bits_truncate(data);
     }
 
-    pub fn vblank_status(&self) -> bool {
+    pub fn is_vblank(&self) -> bool {
         self.intersects(PPUStatus::VERTICAL_BLANK)
     }
 

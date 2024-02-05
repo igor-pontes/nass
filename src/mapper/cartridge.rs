@@ -46,6 +46,7 @@ pub fn new(bytes: &Vec<u8>) -> Result<Box<dyn Mapper>, String> {
             Err(str) => return Err(str)
         };
 
+        log(&format!("[{}] | PRG_ROM banks: {} | CHR_ROM banks: {}", mapper, prg_rom_banks, chr_rom_banks));
         Ok(mapper)
 
     } else {

@@ -60,10 +60,10 @@ impl Emulator {
 
     pub fn step(&mut self) {
         while self.cycles <= CYCLES_PER_FRAME {
-            if self.debug_cycles == 0 {
-                // log("END OF DEBUG.");
-                // panic!();
-            }
+            // if self.debug_cycles == 0 {
+            //     log("END OF DEBUG.");
+            //     panic!();
+            // }
 
             if self.cpu.bus.suspend { 
                 if self.cpu.odd_cycle {
@@ -84,7 +84,7 @@ impl Emulator {
 
             if self.cycles == CYCLES_PER_FRAME { 
                 self.cycles = 0; 
-                self.debug_cycles -= 1;
+                // self.debug_cycles -= 1;
                 break; 
             }
             self.cycles += 1;

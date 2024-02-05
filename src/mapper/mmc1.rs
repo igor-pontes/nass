@@ -1,4 +1,5 @@
 use super::Mapper;
+use std::fmt;
 use crate::mapper::Mirroring;
 use wasm_bindgen::prelude::*;
 
@@ -25,10 +26,16 @@ pub struct MMC1 {
     sr: u8,
     prg_addr: (Bank, Option<Bank>), // (PRG bank 0, PRG bank 1); prg_mode = 0, second element ignored. 
     chr_addr: (Bank, Option<Bank>), // (CHR bank 0, CHR bank 1) 
-    prg_ram: [u8; 0x2000],
+    prg_ram: [u8; 0x8000],
     prg_rom: Vec<u8>, 
-    chr: Vec<u8>, 
+    chr: [u8; 0x2000], 
     mirroring: Mirroring
+}
+
+impl fmt::Display for MMC1 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "MMC1")
+    }
 }
 
 impl MMC1 {
@@ -38,9 +45,10 @@ impl MMC1 {
             prg_addr: (Switch(0), None),
             chr_addr: (Fixed(0), None),
             mirroring,
-            prg_ram: [0; 0x2000],
+            prg_ram: [0; 0x8000],
             prg_rom,
-            chr: chr_rom,
+            // chr: chr_rom,
+            chr: [0; 0x2000],
         } 
     }
 
@@ -152,8 +160,10 @@ impl Mapper for MMC1 {
     fn get_mirroring(&self) -> Mirroring { self.mirroring }
 
     fn read_chr(&self, addr: u16) -> u8 { 
+        // log(&format!("Addr: {} | {:?}", addr, self));
         match self.chr_addr {
             (Switch(x), None) => { self.chr[x + addr as usize] },
+            (Fixed(_), None) => { self.chr[addr as usize] },
             (Switch(x), Some(Switch(y))) => { 
                 if addr >= 0x1000 { 
                     let diff = (addr - 0x1000) as usize;
@@ -162,7 +172,9 @@ impl Mapper for MMC1 {
                     self.chr[x + addr as usize] 
                 }
             }
-            _ => { log("MMC1: Unknown CHR read."); panic!(); }
+            _ => { 
+                log("MMC1: Unknown CHR read."); panic!(); 
+            }
         }
     }
 
@@ -206,6 +218,6 @@ impl Mapper for MMC1 {
     }
 
     // MMC1 can do CHR banking in 4KB chunks. Known carts with CHR RAM have 8 KiB, so that makes 2 banks. RAM vs ROM doesn't make any difference for address lines.
-    // fn write_chr(&mut self, addr: u16, val: u8) { self.chr[addr as usize] = val; }
-    fn write_chr(&mut self, addr: u16, val: u8) { }
+    fn write_chr(&mut self, addr: u16, val: u8) { self.chr[addr as usize] = val; }
+    // fn write_chr(&mut self, addr: u16, val: u8) { }
 }

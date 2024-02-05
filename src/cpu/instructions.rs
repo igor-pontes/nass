@@ -1,31 +1,10 @@
 use num_enum::TryFromPrimitive;
 
-pub const OP_MASK: u8 = 0x03; // Which column of instructions you want?
-// ORA (x, ind) = 0b0000001
-// - (INST_MASK += ...001 ) = Operation 1
-// - 
-// - (ADDR_MODE_MASK += ...001) = 0
-// (ADDR_MODE_SHIFT += ...000 (>> 2) ) = 0 (which is X, ind)
-pub const ADDR_MODE_MASK: u8 = 0x1C; // 0b11100
+pub const OP_MASK: u8 = 0x03;
+pub const ADDR_MODE_MASK: u8 = 0x1C;
 pub const ADDR_MODE_SHIFT: u8 = 0x02;
-
-// Each 32, increases 1 digit:
-// ORA = 0b00000000
-// AND = 0b00100000
-// EOR = 0b01000000
-// ADC = 0b01100000
-// STA = 0b10000000
-// LDA = 0b10100000
-// CMP = 0b11000000
-// SBC = 0b11100000
-// 8 Each type of operation, 8 possible outcomes: 2*2*2 = 8
 pub const INST_MODE_MASK: u8 = 0xE0; // 0b11100000
 pub const INST_MODE_SHIFT: u8 = 0x05; // We only care about first 3 digits
-
-// Each column has a predetermined set of bits turned off, thats why this works.
-// (https://www.masswerk.at/6502/6502_instruction_set.html#explanation)
-// E.g. column 0x01 does not have bits 1-3(1111[000]1) active.
-// E.g. column 0x02 does not have bits 0, 2, 3(1111[00]1[0]) active.
 
 #[repr(u8)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq, TryFromPrimitive)]
@@ -81,24 +60,21 @@ pub enum AbsoluteYOps  {
 }
 
 #[derive(Debug, PartialEq)]
-pub enum AddressingMode { 
-    Immediate,
-    Zeropage,
-    ZeropageX,
-    ZeropageY,
-    ZeropageIndexed,
-    Absolute,
-    AbsoluteX,
-    AbsoluteY,
-    AbsoluteIndexed,
-    Indirect,
-    IndirectX,
-    IndirectY,
+pub enum AddrMode { 
+    Imm,
+    Zp,
+    ZpX,
+    ZpY,
+    ZpInd,
+    Abs,
+    AbsX,
+    AbsY,
+    AbsInd,
+    IndX,
+    IndrY,
     None
 }
 
-// Last to calculate (if not operation_0, it's a NOP zeropage or zeropageX)
-// Blend NOP(Zpg, Zpgx), NOP(Abs, Ansx) with Operation0's Adressmode
 #[repr(u8)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq, TryFromPrimitive)]
 pub enum Operation0 {
@@ -148,37 +124,26 @@ pub enum Operation3 {
     ISC = 0x7
 }
 
-pub const ADDR_1: [AddressingMode; 8] = [
-    AddressingMode::IndirectX,
-    AddressingMode::Zeropage,
-    AddressingMode::Immediate,
-    AddressingMode::Absolute,
-    AddressingMode::IndirectY,
-    AddressingMode::ZeropageX,
-    AddressingMode::AbsoluteY,
-    AddressingMode::AbsoluteX
+pub const ADDR0: [AddrMode; 8] = [
+    AddrMode::Imm,
+    AddrMode::Zp,
+    AddrMode::None,
+    AddrMode::Abs,
+    AddrMode::None,
+    AddrMode::ZpX,
+    AddrMode::None,
+    AddrMode::AbsX
 ];
 
-pub const ADDR_2: [AddressingMode; 8] = [
-    AddressingMode::Immediate,
-    AddressingMode::Zeropage,
-    AddressingMode::None,
-    AddressingMode::Absolute,
-    AddressingMode::None,
-    AddressingMode::ZeropageIndexed, // X or Y
-    AddressingMode::None,
-    AddressingMode::AbsoluteIndexed // X or Y
-];
-
-pub const ADDR_3: [AddressingMode; 8] = [
-    AddressingMode::IndirectX,
-    AddressingMode::Zeropage,
-    AddressingMode::None,
-    AddressingMode::Absolute,
-    AddressingMode::IndirectY,
-    AddressingMode::ZeropageIndexed, // X or Y
-    AddressingMode::None,
-    AddressingMode::AbsoluteIndexed // X or Y
+pub const ADDR: [AddrMode; 8] = [
+    AddrMode::IndX,
+    AddrMode::Zp,
+    AddrMode::Imm,
+    AddrMode::Abs,
+    AddrMode::IndrY,
+    AddrMode::ZpInd, // X or Y
+    AddrMode::AbsY,
+    AddrMode::AbsInd // X or Y
 ];
 
 pub const OP_CYCLES: [u8; 0x100] = [

@@ -6,9 +6,9 @@ use crate::mapper::{
     mmc1::MMC1
 };
 pub use self::cartridge::*;
-use std::fmt::Debug;
+use std::fmt::Display;
 
-pub trait Mapper: Debug {
+pub trait Mapper: Display {
     fn read_prg(&self, addr: u16) -> u8;
     fn read_chr(&self, addr: u16) -> u8;
     fn write_prg(&mut self, addr: u16, val: u8);
