@@ -62,6 +62,7 @@ pub enum AbsoluteYOps  {
 #[derive(Debug, PartialEq)]
 pub enum AddrMode { 
     Imm,
+    Ind,
     Zp,
     ZpX,
     ZpY,
@@ -78,6 +79,7 @@ pub enum AddrMode {
 #[repr(u8)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq, TryFromPrimitive)]
 pub enum Operation0 {
+    JSR = 0x0,
     BIT = 0x1,
     JMP = 0x2,
     _JMP = 0x3,
@@ -127,7 +129,7 @@ pub enum Operation3 {
 pub const ADDR0: [AddrMode; 8] = [
     AddrMode::Imm,
     AddrMode::Zp,
-    AddrMode::None,
+    AddrMode::Ind, // _JMP
     AddrMode::Abs,
     AddrMode::None,
     AddrMode::ZpX,

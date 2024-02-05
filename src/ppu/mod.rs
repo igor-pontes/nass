@@ -67,7 +67,6 @@ impl PPU {
     }
 
     pub fn step(&mut self)  {
-        // log(&format!("Dot: {} | Scanline: {}", self.cycle, self.scanline));
         match self.scanline {
             261 => {
                 if self.cycle > 0 {
@@ -198,13 +197,13 @@ impl PPU {
 
     pub fn write_data(&mut self, value: u8) {
         let addr = self.addr.get() & 0x3FFF;
-        self.increment_vram_addr();
         // if !self.status.is_vblank() && self.mask.show_sprite() || self.mask.show_background() {
         //     self.addr.coarse_x_increment();
         //     self.addr.coarse_y_increment();
         // } else {
         //     self.increment_vram_addr();
         // }
+        self.increment_vram_addr();
         match addr {
             0..=0x1FFF => {
                 self.mapper.borrow_mut().write_chr(addr, value);
@@ -229,13 +228,13 @@ impl PPU {
 
     pub fn read_data(&mut self) -> u8 {
         let addr = self.addr.get() & 0x3FFF;
-        self.increment_vram_addr();
         // if !self.status.is_vblank() && self.mask.show_sprite() || self.mask.show_background() {
         //     self.addr.coarse_x_increment();
         //     self.addr.coarse_y_increment();
         // } else {
         //     self.increment_vram_addr();
         // }
+        self.increment_vram_addr();
         match addr {
             0..=0x1FFF => {
                 let result = self.internal_data_buff;

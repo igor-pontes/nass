@@ -68,7 +68,9 @@ impl CPU {
 
         let op = self.bus.read(self.pc);
 
-        if self.jsr(op) || self.execute_implied(op) || self.execute_relative(op) || self.operation1(op) || self.operation2(op) || self.operation0(op) {
+        // if op == 00 { self.debug = true; }
+
+        if self.execute_implied(op) || self.execute_relative(op) || self.operation2(op) || self.operation1(op) || self.operation0(op) {
             self.cycle += OP_CYCLES[op as usize] as usize;
         }
 
@@ -130,24 +132,18 @@ impl CPU {
         if a & 0xFF00 != b & 0xFF00 { self.cycle += 1; }
     }
 
-    fn jsr(&mut self, opcode: u8) -> bool {
-        if opcode == 0x20 {
-            let return_addr = self.pc+2;
-            self.push_stack(((return_addr & 0xFF00) >> 8) as u8);
-            self.push_stack((return_addr & 0x00FF) as u8);
-            let value = self.get_address_mode(&AddrMode::Abs, opcode);
-            self.pc = value-1;
-            true
-        } else {
-            false
-        }
-    }
-
     fn get_address_mode(&mut self, addr_mode: &AddrMode, inst: u8) -> u16 {
         match addr_mode {
             AddrMode::Imm => {
                 self.pc += 1;
                 self.pc
+            },
+            AddrMode::Ind => {
+                self.pc += 1;
+                let addr = self.read_address(self.pc);
+                self.pc += 1;
+                let operand = (self.bus.read((addr & 0xFF00) | ((addr + 1) & 0x00FF)) as u16) * 0x100 | self.bus.read(addr) as u16;
+                operand
             },
             AddrMode::Abs => {
                 self.pc += 1;
@@ -208,7 +204,7 @@ impl CPU {
                 self.pc += 1;
                 let index = if inst == 0xBE { self.y } else { self.x } as u16;
                 let operand = addr + index;
-                if (inst & 0x0E != 0x0E) && (inst != 0x9D) { self.set_page_crossed(addr, operand); }
+                if (inst & 0x0E != 0x0E) && (inst != 0x9D) || (inst == 0xBE) { self.set_page_crossed(addr, operand); }
                 operand
             },
             _ => 0
@@ -293,7 +289,6 @@ impl CPU {
 
             if !oper_is_a { addr_mode = &ADDR[((opcode & ADDR_MODE_MASK) >> ADDR_MODE_SHIFT) as usize]; }
             if opcode == 0xA2 { addr_mode = &AddrMode::Imm; }
-
             let value = self.get_address_mode(addr_mode, opcode);
             let inst = (opcode & INST_MODE_MASK) >> INST_MODE_SHIFT;
 
@@ -385,18 +380,25 @@ impl CPU {
     fn operation0(&mut self, opcode: u8) -> bool {
         use Operation0::*;
         if opcode & OP_MASK == 0 {
-            let temp = self.pc;
-            let addr_mode = &ADDR0[((opcode & ADDR_MODE_MASK) >> ADDR_MODE_SHIFT) as usize];
-            let inst = (opcode & INST_MODE_MASK) >> INST_MODE_SHIFT;
-            let value = self.get_address_mode(addr_mode, opcode);
+            let temp_pc = self.pc;
+            let mut inst = (opcode & INST_MODE_MASK) >> INST_MODE_SHIFT;
+            let mut addr_mode = (opcode & ADDR_MODE_MASK) >> ADDR_MODE_SHIFT;
+            if opcode == 0x20 { inst = 0; addr_mode = 3; }
+            if opcode == 0x6C { addr_mode = 2; }
+            let value = self.get_address_mode(&ADDR0[addr_mode as usize], opcode);
             let inst = match Operation0::try_from(inst) {
                 Ok(op) => op,
                 Err(_) => return false
             };
-
-            if self.debug { log(&format!("---- {inst:?}({opcode:#04x}) [{temp:#06x}] | Addr mode: {:?} | VALUE(addr): {value:#06x} | A: {:#04x} | X: {:#04x} | Y: {:#04x} | SP: {:#06x} | S {:#010b} ----", addr_mode, self.a, self.x, self.y, self.s, self.status.bits())); }
+            if self.debug { log(&format!("---- {inst:?}({opcode:#04x}) [{temp_pc:#06x}] | Addr mode: {:?} | VALUE(addr): {value:#06x} | A: {:#04x} | X: {:#04x} | Y: {:#04x} | SP: {:#06x} | S {:#010b} ----", addr_mode, self.a, self.x, self.y, self.s, self.status.bits())); }
 
             match inst {
+                JSR => {
+                    let return_addr = temp_pc+2;
+                    self.push_stack(((return_addr & 0xFF00) >> 8) as u8);
+                    self.push_stack((return_addr & 0x00FF) as u8);
+                    self.pc = value - 1;
+                },
                 BIT => {
                     let operand = self.bus.read(value);
                     self.status.set_negative(operand & 0x80 > 0);
@@ -404,7 +406,7 @@ impl CPU {
                     self.status.set_zero((operand & self.a) == 0);
                 },
                 JMP  => self.pc = value-1,
-                _JMP => self.pc = self.read_address(value) - 1,
+                _JMP => self.pc = value-1,
                 STY => self.bus.write(value, self.y),
                 LDY => {
                     self.y = self.bus.read(value);
@@ -440,12 +442,13 @@ impl CPU {
 
         match implied {
             BRK => {
-                let ret_addr = self.pc + 2;
+                let ret_addr = self.pc+2;
                 self.push_stack((ret_addr & 0xFF00 >> 8) as u8);
                 self.push_stack((ret_addr & 0x00FF) as u8);
                 self.status.set_break(true); 
-                self.push_stack(self.status.bits());
-                self.pc = self.read_address(IRQ_VECTOR) - 1;
+                self.push_stack(self.status.bits() | 0x20);
+                self.status.set_interrupt_disable(true); 
+                self.pc = self.read_address(IRQ_VECTOR)-1;
             },
             TXA => {
                 self.a = self.x;
@@ -467,10 +470,10 @@ impl CPU {
             RTI => {
                 let value = self.pull_stack();
                 self.status.set_effective(value);
-                self.pc = ((self.pull_stack() as u16) | ((self.pull_stack() as u16) * 0x100)) - 1;
+                self.pc = ((self.pull_stack() as u16) | ((self.pull_stack() as u16) * 0x100))-1;
             },
             RTS => self.pc = (self.pull_stack() as u16) | ((self.pull_stack() as u16 ) * 0x100),
-            PHP => self.push_stack(self.status.bits() | 0x10),
+            PHP => self.push_stack(self.status.bits() | 0x30),
             CLC => self.status.set_carry(false),
             PLP => { 
                 let value = self.pull_stack();

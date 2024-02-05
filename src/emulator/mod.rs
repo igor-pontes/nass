@@ -28,7 +28,7 @@ pub struct Emulator {
     ppu: Rc<RefCell<PPU>>,
     interrupt: Interrupt,
     cycles: usize,
-    debug_cycles: usize,
+    // debug_cycles: usize,
 }
 
 impl Emulator {
@@ -43,7 +43,7 @@ impl Emulator {
             ppu,
             interrupt: Interrupt::DISABLED,
             cycles: 0,
-            debug_cycles: 1,
+            // debug_cycles: 3,
         }
     }
     pub fn reset(&mut self) {
