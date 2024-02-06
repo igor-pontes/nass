@@ -22,6 +22,10 @@ impl PPUMask {
         *self = PPUMask::from_bits_truncate(data);
     }
 
+    pub fn rendering(&self) -> bool {
+        self.show_sprite() || self.show_background()
+    }
+
     pub fn show_background_leftmost(&self) -> bool {
         self.intersects(PPUMask::SHOW_BACKGROUND_LEFTMOST)
     }

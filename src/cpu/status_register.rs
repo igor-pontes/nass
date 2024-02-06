@@ -59,12 +59,13 @@ impl StatusRegister {
     }
 
     pub fn irq_disabled(&self) -> bool {
-        self.contains(StatusRegister::INTERRUPT_DISABLE)
+        self.intersects(StatusRegister::INTERRUPT_DISABLE)
     }
 
     pub fn set_effective(&mut self, value: u8) {
         // The two bits with no CPU effect are ignored when pulling flags from the stack; there are no corresponding registers for them in the CPU.
         // B is 0 when pushed by interrupts (/IRQ and /NMI) and 1 when pushed by instructions (BRK and PHP).
-        self.update(value & !0x30);
+        // self.update(value & !0x30);
+        self.update(value & !0x10);
     }
 }

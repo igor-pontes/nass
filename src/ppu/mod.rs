@@ -60,7 +60,7 @@ impl PPU {
             fine_x: 0,
             scanline: 0,
             cycle: 0,
-            odd_frame: true,
+            odd_frame: false,
             frame: Frame::new(),
             nmi_ocurred: false,
         }
@@ -68,26 +68,25 @@ impl PPU {
 
     pub fn step(&mut self)  {
         match self.scanline {
-            261 => {
+            261..=u16::MAX => {
                 if self.cycle > 0 {
                     if self.cycle == 1 { 
-                        self.status.clear_vblank();
-                        self.status.clear_overflow();
-                        self.status.clear_sprite_hit();
+                        self.status.set_vblank(false);
+                        self.status.set_overflow(false);
+                        self.status.set_sprite_hit(false);
                     }
 
-                    if self.mask.show_background() || self.mask.show_sprite() { 
+                    if self.mask.rendering() { 
                         if self.cycle % 8 == 0 && self.cycle <= 256 { self.addr.coarse_x_increment(); }
                         if self.cycle == 256 { self.addr.coarse_y_increment(); }
-                        if self.cycle >= 257 && self.cycle < 321 { self.oam_addr = 0; self.addr.set_horizontal(self.temp); }
+                        if self.cycle == 257 { self.oam_addr = 0; self.addr.set_horizontal(self.temp); }
                         if self.cycle >= 280 && self.cycle <= 304 { self.addr.set_vertical(self.temp); }
+
                     }
 
-                    if (self.cycle == 339 && self.odd_frame) || self.cycle == 340 { 
+                    if self.cycle == 340 && self.odd_frame && self.mask.rendering() { 
                         self.scanline = 0; 
                         self.cycle = 0; 
-                        self.odd_frame = !self.odd_frame;
-                        return;
                     }
                 }
             },
@@ -116,30 +115,33 @@ impl PPU {
                             let tile_column = (v & 0x001f) as u8;
                             let tile_row = ((v & 0x03e0) >> 5) as u8;
                             let quadrant = (tile_row & 0x2) + ((tile_column & 0x2) >> 1);
-                            let quadrant_offset = quadrant * 2;
-                            let attr_color = (attr_data & (0x3 << quadrant_offset)) >> quadrant_offset;
+                            let offset = quadrant * 2;
+                            let attr_color = (attr_data >> offset) & 0x3;
                             color = self.palette_table[(attr_color << 2 | color_tile) as usize];
                         }
                         self.frame.set_pixel(color);
                     }
 
-                    if self.mask.show_sprite() || self.mask.show_background() {
+                    if self.mask.rendering() {
                         if self.cycle % 8 == 0 && self.cycle <= 256 { self.addr.coarse_x_increment(); }
                         if self.cycle == 256 { self.addr.coarse_y_increment(); }
-                        if self.cycle >= 257 && self.cycle < 321 { self.oam_addr = 0; self.addr.set_horizontal(self.temp); }
+                        if self.cycle == 257 { self.oam_addr = 0; self.addr.set_horizontal(self.temp); }
                     }
                 }
             },
-            240..=u16::MAX => {
+            240..=260 => {
                 if self.scanline == 241 && self.cycle == 1 { 
-                    self.status.set_vblank();
+                    self.odd_frame = !self.odd_frame;
+                    self.status.set_vblank(true);
                     if self.ctrl.generate_nmi() { self.nmi_ocurred = true; }
                 }
             }
         }
-
         self.cycle += 1;
-        if self.cycle == 341 { self.scanline += 1; self.cycle = 0; }
+        if self.cycle == 341 { 
+            self.scanline = (self.scanline + 1) % 262; 
+            self.cycle = 0; 
+        }
     }
 
     pub fn write_to_scroll(&mut self, value: u8) {
@@ -157,7 +159,7 @@ impl PPU {
 
     pub fn read_status(&mut self) -> u8 {
         let status = self.status.bits();
-        self.status.update(status & !0x80);
+        self.status.set_vblank(false);
         self.addr.reset_latch();
         status
     }

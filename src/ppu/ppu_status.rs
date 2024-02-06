@@ -23,28 +23,16 @@ impl PPUStatus {
         self.intersects(PPUStatus::VERTICAL_BLANK)
     }
 
-    pub fn set_vblank(&mut self) {
-        self.update(self.bits() | 0x80);
+    pub fn set_vblank(&mut self, cond: bool) {
+        self.set(PPUStatus::VERTICAL_BLANK, cond);
     }
 
-    pub fn clear_vblank(&mut self) {
-        self.update(self.bits() | 0x80);
+    pub fn set_sprite_hit(&mut self, cond: bool) {
+        self.set(PPUStatus::SPRITE_HIT, cond);
     }
 
-    pub fn set_sprite_hit(&mut self) {
-        self.update(self.bits() | 0x40);
-    }
-
-    pub fn clear_sprite_hit(&mut self) {
-        self.update(self.bits() & !0x40);
-    }
-
-    pub fn set_overflow(&mut self) {
-        self.update(self.bits() | 0x20);
-    }
-
-    pub fn clear_overflow(&mut self) {
-        self.update(self.bits() & !0x20);
+    pub fn set_overflow(&mut self, cond: bool) {
+        self.set(PPUStatus::SPRITE_OVERFLOW, cond);
     }
 
     pub fn sprite_overflow(&self) -> bool {

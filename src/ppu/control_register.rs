@@ -24,8 +24,8 @@ impl ControlRegister {
     }
 
     pub fn get_nametable(&self) -> u8 {
-        (self.contains(ControlRegister::NAMETABLE2) as u8) << 1 | 
-        (self.contains(ControlRegister::NAMETABLE1) as u8)
+        (self.intersects(ControlRegister::NAMETABLE2) as u8) << 1 | 
+        (self.intersects(ControlRegister::NAMETABLE1) as u8)
     }
 
     pub fn update(&mut self, data: u8, temp: &mut u16) {
