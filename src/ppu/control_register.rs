@@ -29,8 +29,8 @@ impl ControlRegister {
     }
 
     pub fn update(&mut self, data: u8, temp: &mut u16) {
-        *self = ControlRegister::from_bits_truncate(data);
-        *temp = ( self.get_nametable() as u16 ) << 10 | *temp & 0xF3FF;
+        *self = ControlRegister::from_bits_retain(data);
+        *temp = (( self.get_nametable() as u16 ) << 10) | (*temp & 0xF3FF);
     }
 
     pub fn is_sprite_size_16(&self) -> bool {

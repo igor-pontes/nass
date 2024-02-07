@@ -39,6 +39,14 @@ impl PPUStatus {
         self.intersects(PPUStatus::SPRITE_OVERFLOW)
     }
 
+    // pub fn get(&self) -> u8 {
+    //     if self.is_vblank() { 
+    //         self.bits() & !0x80
+    //     } else {
+    //         self.bits()
+    //     }
+    // }
+
     pub fn sprite_hit(&self) -> bool {
         self.intersects(PPUStatus::SPRITE_HIT)
     }

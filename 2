@@ -141,8 +141,8 @@ impl PPU {
             self.temp = (self.temp & 0xFFE0) | (value as u16);
         } else {
             let fine_y_scroll = (value & 0x07) as u16;
-            let coarse_y_scroll = (value & 0xF8) as u16; // (0011111000 << 2 = 1111100000 )
-            self.temp = (self.temp & 0x8C1F) | fine_y_scroll << 12 | coarse_y_scroll << 2;
+            let coarse_y_scroll = (value & 0xF8) as u16;
+            self.temp = (self.temp & 0x8C1F) | fine_y_scroll << 12 | coarse_y_scroll;
         }
         self.addr.toggle_latch();
     }

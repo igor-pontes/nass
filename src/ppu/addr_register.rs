@@ -1,13 +1,13 @@
 pub struct AddrRegister {
     value: (u8, u8),
-    hi_ptr: bool
+    latch: bool
 }
 
 impl AddrRegister {
     pub fn new() -> Self {
         AddrRegister {
             value: (0, 0), // high - low
-            hi_ptr: true,
+            latch: false,
         }
     }
 
@@ -32,10 +32,10 @@ impl AddrRegister {
     }
 
     pub fn update(&mut self, data: u8, temp: &mut u16) {
-        if self.hi_ptr {
-            *temp = ( (data as u16) & 0x003F ) << 8 | *temp & 0x00FF;
+        if !self.latch {
+            *temp = (((data as u16) & 0x3F ) << 8) | (*temp & 0xFF);
         } else {
-            *temp = (data as u16) & 0x00FF | *temp & 0xFF00;
+            *temp = ((data as u16) & 0x00FF) | (*temp & 0xFF00);
             self.value.0 = ((*temp & 0xFF00) >> 8) as u8;
             self.value.1 = (*temp & 0x00FF) as u8;
         } 
@@ -80,15 +80,15 @@ impl AddrRegister {
     }
 
     pub fn reset_latch(&mut self) {
-        self.hi_ptr = true;
+        self.latch = false;
     }
 
     pub fn toggle_latch(&mut self) {
-        self.hi_ptr = !self.hi_ptr;
+        self.latch = !self.latch;
     }
 
     pub fn latch(&self) -> bool {
-        self.hi_ptr
+        self.latch
     }
 
     pub fn get(&self) -> u16 {
