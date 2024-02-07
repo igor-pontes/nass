@@ -21,6 +21,7 @@ pub fn new(bytes: &Vec<u8>) -> Result<Box<dyn Mapper>, String> {
         if bytes[7] & 0x12 == 2 { return Err("NES 2.0 not supported(yet).".to_string()) }
 
         let prg_rom_banks = bytes[4] as usize; // 16384
+       // Size of CHR ROM in 8 KB units (value 0 means the board uses CHR RAM)
         let chr_rom_banks = bytes[5] as usize; // 8192
 
         let four_screen = bytes[6] & 0x8 != 0;
@@ -46,7 +47,7 @@ pub fn new(bytes: &Vec<u8>) -> Result<Box<dyn Mapper>, String> {
             Err(str) => return Err(str)
         };
 
-        log(&format!("[{}] | PRG_ROM banks: {} | CHR_ROM banks: {}", mapper, prg_rom_banks, chr_rom_banks));
+        log(&format!("[{}] | PRG_ROM banks: {} | CHR_ROM banks: {} | Contains PRG_RAM: {} | PRG_RAM size: {} | Mirroring: {:?}", mapper, prg_rom_banks, chr_rom_banks, (bytes[6] & 0x2) > 1, bytes[8], mirroring, ));
         Ok(mapper)
 
     } else {

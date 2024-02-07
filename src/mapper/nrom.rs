@@ -1,16 +1,6 @@
 use std::fmt;
 use super::Mapper;
-use wasm_bindgen::prelude::*;
 pub use super::cartridge::*;
-
-#[wasm_bindgen]
-extern {
-    #[wasm_bindgen(js_namespace = console)]
-    fn log(s: &str);
-
-    #[wasm_bindgen(js_namespace = console)]
-    fn error(s: &str);
-}
 
 pub struct NROM {
     prg_ram: [u8; 0x2000],
@@ -57,8 +47,7 @@ impl Mapper for NROM {
                 if self.prg_rom.len() == 0x4000 && addr >= 0x4000 { addr = addr % 0x4000; }
                 self.prg_rom[addr as usize]
             },
-            _ => { log(&format!("NROM: Trying to access 0x4020 - 0x6000. Address is {addr:#06x}.")); 0 }
-            // _ => { log(&format!("NROM: Trying to access 0x4020 - 0x6000. Address is {addr:#06x}.")); panic!(); }
+            _ => 0
         }
     }
     fn write_prg(&mut self, addr: u16, val: u8) { 

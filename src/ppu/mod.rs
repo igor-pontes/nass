@@ -199,7 +199,7 @@ impl PPU {
 
     pub fn write_data(&mut self, value: u8) {
         let addr = self.addr.get() & 0x3FFF;
-        // if !self.status.is_vblank() && self.mask.show_sprite() || self.mask.show_background() {
+        // if !self.status.is_vblank() && self.mask.rendering() {
         //     self.addr.coarse_x_increment();
         //     self.addr.coarse_y_increment();
         // } else {
@@ -230,7 +230,7 @@ impl PPU {
 
     pub fn read_data(&mut self) -> u8 {
         let addr = self.addr.get() & 0x3FFF;
-        // if !self.status.is_vblank() && self.mask.show_sprite() || self.mask.show_background() {
+        // if !self.status.is_vblank() && self.mask.rendering() {
         //     self.addr.coarse_x_increment();
         //     self.addr.coarse_y_increment();
         // } else {

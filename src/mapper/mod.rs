@@ -1,8 +1,10 @@
 mod cartridge;
 mod nrom;
+mod cnrom;
 mod mmc1;
 use crate::mapper::{
     nrom::NROM,
+    cnrom::CNROM,
     mmc1::MMC1
 };
 pub use self::cartridge::*;
@@ -20,6 +22,7 @@ pub fn get_mapper(mapper: u8, prg_rom: Vec<u8>, chr_rom: Vec<u8>, mirroring: Mir
     match mapper {
         0 => Ok(Box::new(NROM::new(prg_rom, chr_rom, mirroring))),
         1 => Ok(Box::new(MMC1::new(prg_rom, chr_rom, mirroring))),
+        3 => Ok(Box::new(CNROM::new(prg_rom, chr_rom, mirroring))),
         _ => Err("Mapper not implemented.".to_string())
     }
 }
