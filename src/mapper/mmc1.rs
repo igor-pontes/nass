@@ -80,8 +80,8 @@ impl MMC1 {
         }
         if register == 2 {
             match self.chr_addr {
-                Ram(a, Some(..)) => self.chr_addr = Ram(a, Some(bank * CHR_BANK_SIZE_4)),
-                Rom(a, Some(..)) => self.chr_addr = Rom(a, Some(bank * CHR_BANK_SIZE_4)),
+                Ram(a, Some(_)) => self.chr_addr = Ram(a, Some(bank * CHR_BANK_SIZE_4)),
+                Rom(a, Some(_)) => self.chr_addr = Rom(a, Some(bank * CHR_BANK_SIZE_4)),
                 _ => (),
             } 
         }
@@ -224,7 +224,7 @@ impl Mapper for MMC1 {
             (Fixed,     _) if addr < 0x4000 => addr += self.prg_area,
             (_, Switch(x)) => addr = addr - PRG_BANK_SIZE_16 + x + self.prg_area,
             (_, Fixed)     => addr = addr + rom_len - 2*PRG_BANK_SIZE_16 + self.prg_area,
-            _  => panic!("[MMC1] (Null, Null)")
+            _  => panic!("MMC1: (Null, Null)")
         }
         self.prg_rom[addr]
     }
@@ -239,17 +239,16 @@ impl Mapper for MMC1 {
 
     fn read_chr(&self, addr: u16) -> u8 {
         match self.chr_addr {
-            Ram(_, Some(x)) if addr >= 0x1000 => self.chr_ram[addr as usize + x],
-            Rom(_, Some(x)) if addr >= 0x1000 => self.chr_rom[addr as usize + x],
+            Ram(_, Some(x)) if addr >= 0x1000 => self.chr_ram[addr as usize + x - 0x1000],
+            Rom(_, Some(x)) if addr >= 0x1000 => self.chr_rom[addr as usize + x - 0x1000],
             Ram(x, _) => self.chr_ram[addr as usize + x],
             Rom(x, _) => self.chr_rom[addr as usize + x],
         }
     }
 
     fn write_chr(&mut self, addr: u16, val: u8) { 
-        let offset = if (0x1000..=0x1FFF).contains(&addr) { 0x1000 } else { 0 };
         match self.chr_addr {
-            Ram(_, Some(x)) => self.chr_ram[addr as usize + x - offset] = val,
+            Ram(_, Some(x)) => self.chr_ram[addr as usize + x - 0x1000] = val,
             Ram(x, _)       => self.chr_ram[addr as usize + x] = val,
             _ => (),
         }
