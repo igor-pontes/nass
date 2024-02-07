@@ -151,7 +151,7 @@ impl MMC1 {
                 } else { // High Address lines are used for different purposes
                     match self.chr_addr {
                         Ram(_, None) | Rom(_, None) => self.set_variant(value, true, 1),
-                        Ram(..) | Rom(..) => self.set_variant(value, false, 1),
+                        _ => self.set_variant(value, false, 1),
                     }
                 }
             },
@@ -171,7 +171,7 @@ impl MMC1 {
                 } else {
                     match self.chr_addr {
                         Ram(_, Some(_)) | Rom(_, Some(_)) => self.set_variant(value, false, 2),
-                        Ram(..) | Rom(..) => (),
+                        _ => (),
                     }
                 }
             }, 
