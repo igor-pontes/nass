@@ -239,8 +239,8 @@ impl Mapper for MMC1 {
 
     fn read_chr(&self, addr: u16) -> u8 {
         match self.chr_addr {
-            Ram(_, Some(x)) if addr >= 0x1000 => self.chr_ram[addr as usize + x - 0x1000],
-            Rom(_, Some(x)) if addr >= 0x1000 => self.chr_rom[addr as usize + x - 0x1000],
+            Ram(_, Some(x)) if addr >= 0x1000 => self.chr_ram[addr as usize + x - CHR_BANK_SIZE_4],
+            Rom(_, Some(x)) if addr >= 0x1000 => self.chr_rom[addr as usize + x - CHR_BANK_SIZE_4],
             Ram(x, _) => self.chr_ram[addr as usize + x],
             Rom(x, _) => self.chr_rom[addr as usize + x],
         }
@@ -248,7 +248,7 @@ impl Mapper for MMC1 {
 
     fn write_chr(&mut self, addr: u16, val: u8) { 
         match self.chr_addr {
-            Ram(_, Some(x)) => self.chr_ram[addr as usize + x - 0x1000] = val,
+            Ram(_, Some(x)) => self.chr_ram[addr as usize + x - CHR_BANK_SIZE_4] = val,
             Ram(x, _)       => self.chr_ram[addr as usize + x] = val,
             _ => (),
         }
