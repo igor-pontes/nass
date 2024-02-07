@@ -222,7 +222,7 @@ impl Mapper for MMC1 {
         match self.prg_rom_addr {
             (Switch(x), _) if addr < 0x4000 => addr += x + self.prg_area,
             (Fixed,     _) if addr < 0x4000 => addr += self.prg_area,
-            (_, Switch(x)) => addr = addr + x + self.prg_area,
+            (_, Switch(x)) => addr = addr - PRG_BANK_SIZE_16 + x + self.prg_area,
             (_, Fixed)     => addr = addr + rom_len - 2*PRG_BANK_SIZE_16 + self.prg_area,
             _  => panic!("[MMC1] (Null, Null)")
         }
