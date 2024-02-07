@@ -20,7 +20,7 @@ impl StatusRegister {
         StatusRegister::from_bits_retain(0x0)
     }
 
-    fn update(&mut self, value: u8) {
+    pub fn update(&mut self, value: u8) {
         *self = StatusRegister::from_bits_retain(value);
     }
     
@@ -65,7 +65,6 @@ impl StatusRegister {
     pub fn set_effective(&mut self, value: u8) {
         // The two bits with no CPU effect are ignored when pulling flags from the stack; there are no corresponding registers for them in the CPU.
         // B is 0 when pushed by interrupts (/IRQ and /NMI) and 1 when pushed by instructions (BRK and PHP).
-        // self.update(value & !0x30);
-        self.update(value & !0x10);
+        self.update(value & !0x30);
     }
 }

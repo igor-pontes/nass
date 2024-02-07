@@ -1,16 +1,6 @@
 use std::fmt;
 use super::Mapper;
-use wasm_bindgen::prelude::*;
 pub use super::cartridge::*;
-
-#[wasm_bindgen]
-extern {
-    #[wasm_bindgen(js_namespace = console)]
-    fn log(s: &str);
-
-    #[wasm_bindgen(js_namespace = console)]
-    fn error(s: &str);
-}
 
 pub struct CNROM {
     prg_rom: Vec<u8>, 

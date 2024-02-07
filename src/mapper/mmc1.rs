@@ -1,13 +1,6 @@
 use super::Mapper;
 use std::fmt;
 use crate::mapper::Mirroring;
-use wasm_bindgen::prelude::*;
-
-#[wasm_bindgen]
-extern {
-    #[wasm_bindgen(js_namespace = console)]
-    fn log(s: &str);
-}
 
 const PRG_BANK_SIZE_256: usize = 0x40000;
 const PRG_BANK_SIZE_32: usize = 0x8000;
@@ -16,7 +9,7 @@ const PRG_BANK_SIZE_8: usize = 0x2000; // PRG RAM bank size
 const CHR_BANK_SIZE_8: usize = 0x2000;
 const CHR_BANK_SIZE_4: usize = 0x1000;
 
-use Banks::*;
+use ChrBanks::*;
 use BankType::*;
 
 #[derive(Clone, Copy, Debug)]
@@ -26,9 +19,10 @@ enum BankType {
     Null
 }
 
-// https://www.nesdev.org/wiki/MMC1#Variants
+type PrgBanks = (BankType, BankType);
+
 #[derive(Clone, Copy, Debug)]
-enum Banks {
+enum ChrBanks {
     Ram(usize, Option<usize>),
     Rom(usize, Option<usize>) 
 }
@@ -38,8 +32,8 @@ enum Banks {
 pub struct MMC1 {
     sr: u8,
     is_variant: bool,
-    chr_addr: Banks,
-    prg_rom_addr: (BankType, BankType),
+    chr_addr: ChrBanks,
+    prg_rom_addr: PrgBanks,
     prg_ram_addr: usize,
     prg_area: usize,
     prg_ram: [u8; 0x8000],
@@ -94,6 +88,7 @@ impl MMC1 {
 
         let prg_bank = ((value & 0x0C) >> 2) as usize;
         self.prg_ram_addr = prg_bank * PRG_BANK_SIZE_8;
+
         // The 256 KB PRG bank selection applies to all the PRG area(0x6000 - 0xFFFF), including the supposedly "fixed" bank.
         let prg_bank = ((value & 0x10) >> 4) as usize;
         self.prg_area = prg_bank * PRG_BANK_SIZE_256;
@@ -220,20 +215,15 @@ impl Mapper for MMC1 {
     fn get_mirroring(&self) -> Mirroring { self.mirroring }
 
     fn read_prg(&self, addr: u16) -> u8 { 
-        // log(&format!("ADDR: {addr:#06x} | PRG_ROM_BANKS: {:?} | PRG_RAM_BANKS: {:#06x} | CHR_BANKS: {:?}", self.prg_rom_addr, self.prg_ram_addr, self.chr_addr));
-        if (0x6000..=0x7FFF).contains(&addr) { 
-            return self.prg_ram[(addr -  0x6000) as usize + self.prg_ram_addr + self.prg_area] 
-        }
-        let offset = if (0xC000..=0xFFFF).contains(&addr) { 0xC000 } else { 0x8000 };
-        let prg_rom_len = self.prg_rom.len();
-        let mut addr = addr as usize;
-        if prg_rom_len == 0x4000 && addr >= 0x4000 { return self.prg_rom[addr % 0x4000]; }
-        addr -= offset;
+        if (0x6000..=0x7FFF).contains(&addr) { return self.prg_ram[(addr -  0x6000) as usize + self.prg_ram_addr + self.prg_area] }
+        let mut addr = addr as usize - 0x8000;
+        let rom_len = self.prg_rom.len();
+        if rom_len == 0x4000 && addr >= 0x4000 { return self.prg_rom[addr % 0x4000]; }
         match self.prg_rom_addr {
             (Switch(x), _) if addr < 0x4000 => addr += x + self.prg_area,
             (Fixed,     _) if addr < 0x4000 => addr += self.prg_area,
-            (_, Switch(x)) => addr += x + self.prg_area,
-            (_, Fixed) =>  addr += prg_rom_len + self.prg_area - offset,
+            (_, Switch(x)) => addr = addr + x + self.prg_area,
+            (_, Fixed)     => addr = addr + rom_len - 2*PRG_BANK_SIZE_16 + self.prg_area,
             _  => panic!("[MMC1] (Null, Null)")
         }
         self.prg_rom[addr]
@@ -248,12 +238,11 @@ impl Mapper for MMC1 {
     }
 
     fn read_chr(&self, addr: u16) -> u8 {
-        let offset = if (0x1000..=0x1FFF).contains(&addr) { 0x1000 } else { 0 };
         match self.chr_addr {
-            Ram(_, Some(x)) => self.chr_ram[addr as usize + x - offset],
-            Rom(_, Some(x)) => self.chr_rom[addr as usize + x - offset],
-            Ram(x, _)       => self.chr_ram[addr as usize + x],
-            Rom(x, _)       => self.chr_rom[addr as usize + x],
+            Ram(_, Some(x)) if addr >= 0x1000 => self.chr_ram[addr as usize + x],
+            Rom(_, Some(x)) if addr >= 0x1000 => self.chr_rom[addr as usize + x],
+            Ram(x, _) => self.chr_ram[addr as usize + x],
+            Rom(x, _) => self.chr_rom[addr as usize + x],
         }
     }
 

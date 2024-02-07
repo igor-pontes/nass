@@ -12,17 +12,6 @@ pub use self::ppu_mask::PPUMask;
 pub use self::ppu_status::PPUStatus;
 use crate::mapper::Mirroring;
 
-use wasm_bindgen::prelude::*;
-
-#[wasm_bindgen]
-extern {
-    #[wasm_bindgen(js_namespace = console)]
-    fn log(s: &str);
-
-    #[wasm_bindgen(js_namespace = console)]
-    fn error(s: &str);
-}
-
 pub struct PPU {
     pub mapper: Rc<RefCell<Box<dyn Mapper>>>,
     pub palette_table: [u8; 0x20],
@@ -255,7 +244,7 @@ impl PPU {
                 result
             },
             0x3F00..=0x3FFF => {
-                self.internal_data_buff = self.vram[self.mirror_vram_addr(addr & 0x2EFF) as usize];
+                self.internal_data_buff = self.vram[self.mirror_vram_addr(addr) as usize];
                 let mut addr = addr & 0x1F;
                 if addr >= 0x10 && addr % 4 == 0 { 
                     addr -= 0x10; 

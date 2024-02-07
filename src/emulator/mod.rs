@@ -2,14 +2,7 @@ use {
     std::cell::RefCell,
     std::rc::Rc,
     crate::{ cpu::*, mapper::*, ppu::* },
-    wasm_bindgen::prelude::*,
 };
-
-#[wasm_bindgen]
-extern {
-    #[wasm_bindgen(js_namespace = console)] 
-    fn log(s: &str); 
-}
 
 // CPU cyles per frame
 const CYCLES_PER_FRAME: usize = 29780;
@@ -34,7 +27,7 @@ impl Emulator {
     pub fn new(rom: &Vec<u8>) -> Self {
         let mapper = match new(rom) { 
             Ok(m) => Rc::new(RefCell::new(m)), 
-            Err(str) => { log(&str); panic!(); }
+            Err(str) => { panic!("{str}"); }
         };
         let ppu = Rc::new(RefCell::new(PPU::new(mapper.clone())));
         Emulator { 
