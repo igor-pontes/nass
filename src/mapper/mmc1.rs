@@ -1,6 +1,13 @@
 use super::Mapper;
 use std::fmt;
 use crate::mapper::Mirroring;
+use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen]
+extern {
+    #[wasm_bindgen(js_namespace = console)]
+    fn log(s: &str);
+}
 
 const PRG_BANK_SIZE_256: usize = 0x40000;
 const PRG_BANK_SIZE_32: usize = 0x8000;
@@ -12,7 +19,7 @@ const CHR_BANK_SIZE_4: usize = 0x1000;
 use Banks::*;
 use BankType::*;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 enum BankType {
     Fixed,
     Switch(usize),
@@ -20,6 +27,7 @@ enum BankType {
 }
 
 // https://www.nesdev.org/wiki/MMC1#Variants
+#[derive(Clone, Copy, Debug)]
 enum Banks {
     Ram(usize, Option<usize>),
     Rom(usize, Option<usize>) 
@@ -212,17 +220,23 @@ impl Mapper for MMC1 {
     fn get_mirroring(&self) -> Mirroring { self.mirroring }
 
     fn read_prg(&self, addr: u16) -> u8 { 
+        // log(&format!("ADDR: {addr:#06x} | PRG_ROM_BANKS: {:?} | PRG_RAM_BANKS: {:#06x} | CHR_BANKS: {:?}", self.prg_rom_addr, self.prg_ram_addr, self.chr_addr));
         if (0x6000..=0x7FFF).contains(&addr) { 
             return self.prg_ram[(addr -  0x6000) as usize + self.prg_ram_addr + self.prg_area] 
         }
         let offset = if (0xC000..=0xFFFF).contains(&addr) { 0xC000 } else { 0x8000 };
+        let prg_rom_len = self.prg_rom.len();
+        let mut addr = addr as usize;
+        if prg_rom_len == 0x4000 && addr >= 0x4000 { return self.prg_rom[addr % 0x4000]; }
+        addr -= offset;
         match self.prg_rom_addr {
-            (Switch(x), _) => self.prg_rom[(addr as usize) + x + self.prg_area - offset],
-            (_, Switch(x)) => self.prg_rom[(addr as usize) + x + self.prg_area - offset],
-            (Fixed, _) => self.prg_rom[(addr as usize) + self.prg_area + offset],
-            (_, Fixed) => self.prg_rom[(addr as usize) + self.prg_rom.len() + self.prg_area - 2*offset],
-            _ => 0
+            (Switch(x), _) if addr < 0x4000 => addr += x + self.prg_area,
+            (Fixed,     _) if addr < 0x4000 => addr += self.prg_area,
+            (_, Switch(x)) => addr += x + self.prg_area,
+            (_, Fixed) =>  addr += prg_rom_len + self.prg_area - offset,
+            _  => panic!("[MMC1] (Null, Null)")
         }
+        self.prg_rom[addr]
     }
 
     fn write_prg(&mut self, addr: u16, val: u8) { 
@@ -238,8 +252,8 @@ impl Mapper for MMC1 {
         match self.chr_addr {
             Ram(_, Some(x)) => self.chr_ram[addr as usize + x - offset],
             Rom(_, Some(x)) => self.chr_rom[addr as usize + x - offset],
-            Ram(x, _) => self.chr_ram[addr as usize + x],
-            Rom(x, _) => self.chr_rom[addr as usize + x],
+            Ram(x, _)       => self.chr_ram[addr as usize + x],
+            Rom(x, _)       => self.chr_rom[addr as usize + x],
         }
     }
 
@@ -247,7 +261,7 @@ impl Mapper for MMC1 {
         let offset = if (0x1000..=0x1FFF).contains(&addr) { 0x1000 } else { 0 };
         match self.chr_addr {
             Ram(_, Some(x)) => self.chr_ram[addr as usize + x - offset] = val,
-            Ram(x, _) => self.chr_ram[addr as usize + x] = val,
+            Ram(x, _)       => self.chr_ram[addr as usize + x] = val,
             _ => (),
         }
     }

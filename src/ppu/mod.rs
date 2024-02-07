@@ -255,11 +255,11 @@ impl PPU {
                 result
             },
             0x3F00..=0x3FFF => {
+                self.internal_data_buff = self.vram[self.mirror_vram_addr(addr & 0x2EFF) as usize];
                 let mut addr = addr & 0x1F;
                 if addr >= 0x10 && addr % 4 == 0 { 
                     addr -= 0x10; 
                 }
-                // self.internal_data_buff = self.vram[self.mirror_vram_addr(addr & 0x3EFF) as usize];
                 self.palette_table[addr as usize]
             }
             _ => panic!("unexpected access to mirrored space {}", addr)
