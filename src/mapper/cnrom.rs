@@ -30,7 +30,8 @@ impl Mapper for CNROM {
     fn get_mirroring(&self) -> Mirroring { self.mirroring }
 
     fn read_chr(&self, addr: u16) -> u8 { 
-        self.chr_rom[(addr + self.chr_bank) as usize] 
+        let addr = (addr + self.chr_bank) as usize;
+        self.chr_rom[addr] 
     }
 
     fn read_prg(&self, addr: u16) -> u8 { 
@@ -48,10 +49,13 @@ impl Mapper for CNROM {
 
     fn write_prg(&mut self, addr: u16, val: u8) { 
         match addr {
-            0x8000..=0xFFFF => self.chr_bank = ((val as u16) & 0x3) * 0x2000,
+            0x8000..=0xFFFF => {
+                self.chr_bank = ((val as u16) & 0x3) * 0x2000;
+            },
             _ => () 
         }
     }
 
-    fn write_chr(&mut self, _addr: u16, _val: u8) { }
+    fn write_chr(&mut self, _addr: u16, _val: u8) { 
+    }
 }

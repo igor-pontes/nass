@@ -12,6 +12,14 @@ const CHR_BANK_SIZE_4: usize = 0x1000;
 use ChrBanks::*;
 use BankType::*;
 
+use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen]
+extern {
+    #[wasm_bindgen(js_namespace = console)]
+    fn log(s: &str);
+}
+
 #[derive(Clone, Copy, Debug)]
 enum BankType {
     Fixed,
@@ -215,11 +223,13 @@ impl Mapper for MMC1 {
     fn get_mirroring(&self) -> Mirroring { self.mirroring }
 
     fn read_prg(&self, addr: u16) -> u8 { 
+        // log(&format!("[Read PRG] Addr: {addr:#06x} | PRG_RAM_ADDR: {} | PRG_ROM_ADDR: {:?}", self.prg_ram_addr, self.prg_rom_addr));
         if (0x6000..=0x7FFF).contains(&addr) { return self.prg_ram[(addr -  0x6000) as usize + self.prg_ram_addr + self.prg_area] }
         let mut addr = addr as usize - 0x8000;
         let rom_len = self.prg_rom.len();
-        if rom_len == 0x4000 && addr >= 0x4000 { return self.prg_rom[addr % 0x4000]; }
+        if rom_len == 0x4000 && addr >= 0x4000 { return self.prg_rom[addr % 0x4000] }
         match self.prg_rom_addr {
+            (Switch(x), Null)  => addr += x + self.prg_area,
             (Switch(x), _) if addr < 0x4000 => addr += x + self.prg_area,
             (Fixed,     _) if addr < 0x4000 => addr += self.prg_area,
             (_, Switch(x)) => addr = addr - PRG_BANK_SIZE_16 + x + self.prg_area,

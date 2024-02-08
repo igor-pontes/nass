@@ -2,15 +2,13 @@ use std::rc::Rc;
 use std::cell::RefCell;
 use crate::mapper::*;
 use crate::ppu::PPU;
+
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen]
 extern {
     #[wasm_bindgen(js_namespace = console)]
     fn log(s: &str);
-
-    #[wasm_bindgen(js_namespace = console)]
-    fn error(s: &str);
 }
 
 const RAM_SIZE: usize = 0x800;
@@ -33,6 +31,7 @@ impl BUS {
     }
 
     pub fn write(&mut self, addr: u16, value: u8) {
+        if addr == 0x6000 { log(&format!("{value:#06x}")); }
         match addr {
             0x0000..=0x1FFF => self.ram[(addr as usize) & 0x07FF] = value,
             0x2000 => self.ppu.borrow_mut().write_to_ctrl(value),
@@ -51,7 +50,7 @@ impl BUS {
                     self.write(0x2004, value);
                 }
             },
-            0x4020..=0x7FFF => self.mapper.borrow_mut().write_prg(addr, value),
+            0x4020..=0xFFFF => self.mapper.borrow_mut().write_prg(addr, value),
             _ => ()
         }
     }
@@ -59,8 +58,7 @@ impl BUS {
     pub fn read(&mut self, addr: u16) -> u8 { 
         match addr {
             0x0000..=0x1FFF => self.ram[addr as usize & 0x07FF],
-            // 0x2000 | 0x2003 | 0x2005 | 0x2006 | 0x4014 => { panic!("Attempt to read from write-only PPU address."); }
-            0x2000 | 0x2003 | 0x2005 | 0x2006 | 0x4014 => { 0 }
+            0x2000 | 0x2003 | 0x2005 | 0x2006 | 0x4014 => 0,
             0x2002 => self.ppu.borrow_mut().read_status(),
             0x2004 => self.ppu.borrow_mut().read_oam(),
             0x2007 => self.ppu.borrow_mut().read_data(),

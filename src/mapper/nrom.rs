@@ -51,7 +51,10 @@ impl Mapper for NROM {
         }
     }
     fn write_prg(&mut self, addr: u16, val: u8) { 
-        self.prg_ram[(addr - 0x6000) as usize] = val; 
+        match addr {
+            0x6000..=0x7FFF => self.prg_ram[(addr - 0x6000) as usize] = val,
+            _ => ()
+        }
     }
 
     fn write_chr(&mut self, addr: u16, val: u8) { 

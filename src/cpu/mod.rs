@@ -38,26 +38,21 @@ impl CPU {
     }
 
     pub fn step(&mut self, interrupt: &mut Interrupt) {
-
         self.odd_cycle = !self.odd_cycle;
-        
         if self.cycle != 0 {
             self.cycle -= 1;
             return;
         }
-
         if (*interrupt) == Interrupt::NMI {
             self.execute_nmi();
             (*interrupt) = Interrupt::DISABLED; 
             self.cycle -= 1;
             return;
         }
-
         let op = self.bus.read(self.pc);
         self.pc += 1;
-
-        if self.execute_implied(op) || self.execute_relative(op) || self.operation2(op) || self.operation1(op) || self.operation0(op) {
-            self.cycle += OP_CYCLES[op as usize] as usize;
+        if self.execute_implied(op) || self.execute_immediate(op) || self.execute_relative(op) || self.operation3(op) ||  self.operation2(op) || self.operation1(op) || self.operation0(op) {
+            self.cycle += (CYCLES[op as usize] & CYCLES_MASK) as usize;
         }
 
         self.cycle -= 1;
@@ -101,10 +96,9 @@ impl CPU {
             } else { 
                 self.pc += 1;
             }
-            true
-        } else {
-            false
+            return true
         }
+        false
     }
 
     fn set_page_crossed(&mut self, a: u16, b: u16) {
@@ -112,6 +106,7 @@ impl CPU {
     }
 
     fn get_address_mode(&mut self, addr_mode: &AddrMode, inst: u8) -> u16 {
+        let cross_page = (CYCLES[inst as usize] & CYCLES_CROSS_MASK) != CYCLES_CROSS_MASK;
         match addr_mode {
             AddrMode::Imm => {
                 let operand = self.pc;
@@ -148,14 +143,14 @@ impl CPU {
                 let addr = self.read_address(self.pc);
                 self.pc += 2;
                 let operand = addr + self.x as u16;
-                self.set_page_crossed(addr, operand);
+                if cross_page { self.set_page_crossed(addr, operand) }
                 operand
             },
             AddrMode::AbsY => {
                 let addr = self.read_address(self.pc);
                 self.pc += 2;
                 let operand = addr + self.y as u16;
-                if inst != 0x99 { self.set_page_crossed(addr, operand); }
+                if cross_page { self.set_page_crossed(addr, operand) }
                 operand
             },
             AddrMode::IndX => {
@@ -168,7 +163,7 @@ impl CPU {
                 self.pc += 1;
                 let addr = self.bus.read(arg) as u16 | (self.bus.read((arg + 1) & 0xFF) as u16) * 0x100;
                 let operand = addr + self.y as u16;
-                if inst != 0x91 { self.set_page_crossed(addr, operand); }
+                if cross_page { self.set_page_crossed(addr, operand) }
                 operand
             },
             AddrMode::ZpInd => {
@@ -182,11 +177,20 @@ impl CPU {
                 self.pc += 2;
                 let index = if inst == 0xBE { self.y } else { self.x } as u16;
                 let operand = addr + index;
-                if (inst & 0x0E != 0x0E) && (inst != 0x9D) || (inst == 0xBE) { self.set_page_crossed(addr, operand); }
+                if cross_page { self.set_page_crossed(addr, operand) }
                 operand
             },
             _ => 0
         }
+    }
+
+    fn add(&mut self, value: u8) {
+        let carry = self.status.bits() & 0x1 == 1;
+        let (sum, carry) = add(self.a, value, carry);
+        self.status.set_carry(carry);
+        self.status.set_overflow(((self.a ^ sum) & (value ^ sum) & 0x80) != 0);
+        self.a = sum;
+        self.status.set_zero_negative(self.a);
     }
 
     fn operation1(&mut self, opcode: u8) -> bool {
@@ -198,13 +202,6 @@ impl CPU {
             let inst = match Operation1::try_from(inst) {
                 Ok(op) => op,
                 Err(_) => return false
-            };
-
-            let add = |value, carry| {
-                let (sum, c1) = self.a.overflowing_add(value);
-                let (sum, c2) = sum.overflowing_add(carry);
-                (sum, c1 || c2)
-
             };
 
             match inst {
@@ -221,13 +218,8 @@ impl CPU {
                     self.status.set_zero_negative(self.a);
                 },
                 ADC => {
-                    let carry = self.status.bits() & 0x1;
                     let value = self.bus.read(value);
-                    let (sum, carry) = add(value, carry);
-                    self.status.set_carry(carry);
-                    self.status.set_overflow(((self.a ^ sum) & (value ^ sum) & 0x80) != 0);
-                    self.a = sum;
-                    self.status.set_zero_negative(self.a);
+                    self.add(value);
                 },
                 STA => self.bus.write(value, self.a),
                 LDA => {
@@ -241,19 +233,13 @@ impl CPU {
                     self.status.set_zero_negative(diff);
                 },
                 SBC => {
-                    let carry = self.status.bits() & 0x1;
                     let value = self.bus.read(value);
-                    let (sum, carry) = add(!value, carry);
-                    self.status.set_carry(carry);
-                    self.status.set_overflow(((self.a ^ sum) & (value ^ sum) & 0x80) > 1);
-                    self.a = sum;
-                    self.status.set_zero_negative(self.a);
+                    self.add(!value);
                 },
             };
-            true
-        } else {
-            false
+            return true
         }
+        false
     }
 
     fn operation2(&mut self, opcode: u8) -> bool {
@@ -261,17 +247,15 @@ impl CPU {
         if opcode & OP_MASK == 2 {
             let mut addr_mode = &AddrMode::None;
             let oper_is_a = (opcode & 0x0F) == 0x0A;
-
             if !oper_is_a { addr_mode = &ADDR[((opcode & ADDR_MODE_MASK) >> ADDR_MODE_SHIFT) as usize]; }
-            if opcode == 0xA2 { addr_mode = &AddrMode::Imm; }
             let value = self.get_address_mode(addr_mode, opcode);
-            let inst = (opcode & INST_MODE_MASK) >> INST_MODE_SHIFT;
-
+            let mut inst = (opcode & INST_MODE_MASK) >> INST_MODE_SHIFT;
+            if opcode & 0x0F == 0x02 { inst = 0x8 }
+            if opcode == 0x9E { inst = 0x9 }
             let inst = match Operation2::try_from(inst) {
                 Ok(op) => op,
                 Err(_) => return false
             };
-
             match inst {
                 ASL => {
                     if oper_is_a {
@@ -290,13 +274,13 @@ impl CPU {
                     if oper_is_a {
                         let carry = self.status.bits() & 0x1;
                         self.status.set_carry((self.a & 0x80) > 0);
-                        self.a = self.a << 1 | carry;
+                        self.a = (self.a << 1) | carry;
                         self.status.set_zero_negative(self.a);
                     } else {
                         let mut operand = self.bus.read(value);
                         let carry = self.status.bits() & 0x1;
                         self.status.set_carry((operand & 0x80) > 0);
-                        operand = operand << 1 | carry;
+                        operand = (operand << 1) | carry;
                         self.status.set_zero_negative(operand);
                         self.bus.write(value, operand);
                     }
@@ -318,13 +302,13 @@ impl CPU {
                     if oper_is_a {
                         let carry = self.status.bits() & 0x1;
                         self.status.set_carry((self.a & 0x1) == 1);
-                        self.a = self.a >> 1 | carry << 7;
+                        self.a = (self.a >> 1) | carry << 7;
                         self.status.set_zero_negative(self.a);
                     } else {
                         let mut operand = self.bus.read(value);
                         let carry = self.status.bits() & 0x1;
                         self.status.set_carry((operand & 0x1) == 1);
-                        operand = operand >> 1 | carry << 7;
+                        operand = (operand >> 1) | carry << 7;
                         self.status.set_zero_negative(operand);
                         self.bus.write(value, operand);
                     }
@@ -344,11 +328,12 @@ impl CPU {
                     self.status.set_zero_negative(operand);
                     self.bus.write(value, operand);
                 },
+                JAM => self.pc -= 1,
+                SHX => ()
             }
-            true
-        } else {
-            false
-        }
+            return true
+        } 
+        false
     }
 
     fn operation0(&mut self, opcode: u8) -> bool {
@@ -397,20 +382,147 @@ impl CPU {
                     self.status.set_zero_negative(diff);
                 }
             }
-            true
-        } else {
-            false
+            return true
+        } 
+        false
+    }
+
+    fn operation3(&mut self, opcode: u8) -> bool {
+        use Operation3::*;
+        if opcode & OP_MASK == 3 {
+            let mut inst = (opcode & INST_MODE_MASK) >> INST_MODE_SHIFT;
+            if opcode == 0xBB { inst = 0x8 }
+            if opcode == 0x9F { inst = 0x9 }
+            if opcode == 0x9B { inst = 0xA }
+            let addr_mode = (opcode & ADDR_MODE_MASK) >> ADDR_MODE_SHIFT;
+            let addr = self.get_address_mode(&ADDR[addr_mode as usize], opcode);
+            let inst = match Operation3::try_from(inst) {
+                Ok(op) => op,
+                Err(_) => return false
+            };
+            match inst {
+                SLO => {
+                    let mut operand = self.bus.read(addr);
+                    self.status.set_carry((operand & 0x80) > 0);
+                    operand <<= 1;
+                    self.bus.write(addr, operand);
+                    self.a |= operand;
+                    self.status.set_zero_negative(self.a);
+                },
+                RLA => {
+                    let mut operand = self.bus.read(addr);
+                    let carry = self.status.bits() & 0x1;
+                    self.status.set_carry((operand & 0x80) > 0);
+                    operand = (operand << 1) | carry;
+                    self.bus.write(addr, operand);
+                    self.a &= operand;
+                    self.status.set_zero_negative(self.a);
+                },
+                SRE => {
+                    let mut operand = self.bus.read(addr);
+                    self.status.set_carry((operand & 0x1) == 1);
+                    operand >>= 1;
+                    self.bus.write(addr, operand);
+                    self.a ^= operand;
+                    self.status.set_zero_negative(self.a);
+                },
+                RRA => {
+                    let mut operand = self.bus.read(addr);
+                    let carry = self.status.bits() & 0x1;
+                    let carry_op = (operand & 0x1) == 1;
+                    operand = (operand >> 1) | carry << 7;
+                    self.bus.write(addr, operand);
+                    let (sum, carry) = add(self.a, operand, carry_op);
+                    self.status.set_carry(carry);
+                    self.status.set_overflow(((self.a ^ sum) & (operand ^ sum) & 0x80) != 0);
+                    self.a = sum;
+                    self.status.set_zero_negative(self.a);
+                },
+                SAX => {
+                    let operand = self.bus.read(addr) & self.a;
+                    self.bus.write(addr, operand);
+                },
+                LAX => {
+                    self.a = self.bus.read(addr);
+                    self.x = self.a;
+                    self.status.set_zero_negative(self.x);
+                },
+                DCP => {
+                    let operand = self.bus.read(addr) - 1;
+                    self.bus.write(addr, operand);
+                    let diff = self.a - operand;
+                    self.status.set_carry(self.a >= operand);
+                    self.status.set_zero_negative(diff);
+                },
+                ISC => {
+                    let operand = self.bus.read(addr) + 1;
+                    self.bus.write(addr, operand);
+                    self.add(operand);
+                },
+                LAS => {
+                    self.s = self.bus.read(addr) & self.s;
+                    self.a = self.s;
+                    self.x = self.s;
+                    self.status.set_zero_negative(self.s);
+                },
+                _ => () // Unstable
+            }
+            return true
         }
+        false
+    }
+
+    fn execute_immediate(&mut self, opcode: u8) -> bool {
+        use ImmediateOps::*;
+        let inst = match ImmediateOps::try_from(opcode) {
+            Ok(i) => i,
+            _ => return false
+        };
+        let addr = self.get_address_mode(&AddrMode::Imm, opcode);
+        let operand = self.bus.read(addr);
+        match inst {
+            LDX => {
+                self.x = operand;
+                self.status.set_zero_negative(self.x);
+            },
+            ANC | ANC_ => {
+                self.status.set_carry((operand & 0x80) > 0);
+                self.status.set_zero_negative(self.a & operand);
+            },
+            ALR => {
+                self.a &= operand;
+                self.status.set_carry((self.a & 0x1) == 1);
+                self.a >>= 1;
+                self.status.set_zero_negative(self.a);
+            },
+            ARR => {
+                let carry = self.status.bits() & 0x1 == 1;
+                self.a &= operand;
+                self.status.set_overflow(((self.a & 0x40) ^ ((self.a & 0x20) << 1)) > 0);
+                self.status.set_carry((self.a & 0x40) > 0);
+                self.status.set_zero_negative(self.a);
+                self.a = self.a >> 1 | (carry as u8) << 7;
+            },
+            SBX => {
+                let value = self.x & self.a; 
+                let (sum, carry) = add(!value, operand, false);
+                self.x = sum;
+                self.status.set_carry(carry);
+                self.status.set_zero_negative(self.x);
+            },
+            USBC => self.add(!operand), 
+            _ => ()
+        }
+        true
     }
 
     fn execute_implied(&mut self, opcode: u8) -> bool {
         use ImplicitOps::*;
-        let implied = match ImplicitOps::try_from(opcode) {
+        let inst = match ImplicitOps::try_from(opcode) {
             Ok(i) => i,
             _ => return false
         };
-        
-        match implied {
+        match inst {
             BRK => {
                 let return_addr = self.pc + 1;
                 self.push_stack((return_addr & 0xFF00 >> 8) as u8);

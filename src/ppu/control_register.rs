@@ -19,7 +19,7 @@ impl ControlRegister {
     }
 
     pub fn vram_addr_increment(&self) -> u8 {
-        if self.contains(ControlRegister::VRAM_ADD_INCREMENT) { return 32; } 
+        if self.intersects(ControlRegister::VRAM_ADD_INCREMENT) { return 32; } 
         1
     }
 
