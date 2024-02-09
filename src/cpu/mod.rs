@@ -362,8 +362,7 @@ impl CPU {
                     self.status.set_overflow(operand & 0x40 > 0);
                     self.status.set_zero((operand & self.a) == 0);
                 },
-                JMP  => self.pc = value,
-                _JMP => self.pc = value,
+                JMP | _JMP => self.pc = value,
                 STY => self.bus.write(value, self.y),
                 LDY => {
                     self.y = self.bus.read(value);
