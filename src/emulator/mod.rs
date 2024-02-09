@@ -4,15 +4,13 @@ use {
     crate::{ cpu::*, mapper::*, ppu::* },
 };
 
-// CPU cyles per frame
-const CYCLES_PER_FRAME: usize = 29780;
+const CYCLES_PER_FRAME: usize = 29780 * 4;
 
 // https://www.nesdev.org/wiki/Status_flags#I:_Interrupt_Disable
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum Interrupt {
     NMI,
     IRQ,
-    BRK,
     DISABLED
 }
 
@@ -20,7 +18,6 @@ pub struct Emulator {
     cpu: CPU,
     ppu: Rc<RefCell<PPU>>,
     interrupt: Interrupt,
-    cycles: usize,
 }
 
 impl Emulator {
@@ -34,7 +31,6 @@ impl Emulator {
             cpu: CPU::new(BUS::new(mapper.clone(), ppu.clone())),
             ppu,
             interrupt: Interrupt::DISABLED,
-            cycles: 0,
         }
     }
     pub fn reset(&mut self) {
@@ -50,24 +46,22 @@ impl Emulator {
     }
 
     pub fn step(&mut self) {
-        while self.cycles <= CYCLES_PER_FRAME {
+        let mut cycles = 0; 
+        while cycles < CYCLES_PER_FRAME {
             if self.cpu.bus.suspend { 
                 if self.cpu.odd_cycle { self.cpu.cycle += 513; } else { self.cpu.cycle += 514; }
                 self.cpu.bus.suspend = false;
             }
-            if self.ppu.borrow().nmi_ocurred {
-                self.interrupt = Interrupt::NMI;
-                self.ppu.borrow_mut().nmi_ocurred = false;
-            }
             self.cpu.step(&mut self.interrupt);
-            self.ppu.borrow_mut().step(); 
-            self.ppu.borrow_mut().step(); 
-            self.ppu.borrow_mut().step(); 
-            if self.cycles == CYCLES_PER_FRAME { 
-                self.cycles = 0; 
-                break; 
-            }
-            self.cycles += 1;
+            for _ in 0..3 {
+                self.ppu.borrow_mut().step();
+                if self.ppu.borrow().nmi_ocurred { 
+                    self.interrupt = Interrupt::NMI;
+                    self.ppu.borrow_mut().nmi_ocurred = false;
+                    break 
+                }
+            } 
+            cycles += 1;
         }
     }
 }

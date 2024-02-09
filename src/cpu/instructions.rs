@@ -86,10 +86,11 @@ pub enum Operation0 {
     BIT = 0x1,
     JMP = 0x2,
     _JMP = 0x3,
-    STY = 0x4, // or SHY
+    STY = 0x4,
     LDY = 0x5,
     CPY = 0x6,
     CPX = 0x7,
+    SHY = 0x8
 }
 
 #[repr(u8)]
@@ -143,7 +144,7 @@ pub const ADDR0: [AddrMode; 8] = [
     AddrMode::Abs,
     AddrMode::None,
     AddrMode::ZpX,
-    AddrMode::None,
+    AddrMode::AbsY,
     AddrMode::AbsX
 ];
 

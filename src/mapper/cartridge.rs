@@ -1,11 +1,4 @@
 use crate::mapper::*;
-use wasm_bindgen::prelude::*;
-
-#[wasm_bindgen]
-extern {
-    #[wasm_bindgen(js_namespace = console)]
-    fn log(s: &str);
-}
 
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum Mirroring {
@@ -47,7 +40,6 @@ pub fn new(bytes: &Vec<u8>) -> Result<Box<dyn Mapper>, String> {
             Err(str) => return Err(str)
         };
 
-        log(&format!("[{}] | PRG_ROM banks: {} | CHR_ROM banks: {} | Contains PRG_RAM: {} | PRG_RAM size: {} | Mirroring: {:?}", mapper, prg_rom_banks, chr_rom_banks, (bytes[6] & 0x2) > 1, bytes[8], mirroring, ));
         Ok(mapper)
 
     } else {

@@ -15,21 +15,22 @@ use crate::mapper::Mirroring;
 pub struct PPU {
     pub mapper: Rc<RefCell<Box<dyn Mapper>>>,
     pub palette_table: [u8; 0x20],
-    pub vram: [u8; 0x800], // Nametables (2kB)
-    pub oam_data: [u8; 0x100],
-    pub oam_addr: u8,
+    vram: [u8; 0x800], // Nametables (2kB)
+    oam_data: [u8; 0x100],
+    oam_addr: u8,
     addr: AddrRegister,
     temp: u16,
-    pub ctrl: ControlRegister,
+    ctrl: ControlRegister,
     mask: PPUMask,
     status: PPUStatus,
     internal_data_buff: u8,
     fine_x: u8,
     scanline: u16,
-    pub cycle: usize,
+    dot: usize,
     odd_frame: bool,
     pub frame: Frame,
     pub nmi_ocurred: bool,
+    surpress_vbl: bool,
 }
 
 impl PPU {
@@ -48,44 +49,40 @@ impl PPU {
             internal_data_buff: 0,
             fine_x: 0,
             scanline: 0,
-            cycle: 0,
+            dot: 0,
             odd_frame: false,
             frame: Frame::new(),
             nmi_ocurred: false,
+            surpress_vbl: false,
         }
     }
 
     pub fn step(&mut self)  {
         match self.scanline {
             261..=u16::MAX => {
-                if self.cycle > 0 {
-                    if self.cycle == 1 { 
-                        self.status.set_vblank(false);
-                        self.status.set_overflow(false);
-                        self.status.set_sprite_hit(false);
-                    }
-
-                    if self.mask.rendering() { 
-                        if self.cycle % 8 == 0 && self.cycle <= 256 { self.addr.coarse_x_increment(); }
-                        if self.cycle == 256 { self.addr.coarse_y_increment(); }
-                        if self.cycle == 257 { self.oam_addr = 0; self.addr.set_horizontal(self.temp); }
-                        if self.cycle >= 280 && self.cycle <= 304 { self.addr.set_vertical(self.temp); }
-
-                    }
-
-                    if self.cycle == 340 && self.odd_frame && self.mask.rendering() { 
-                        self.scanline = 0; 
-                        self.cycle = 0; 
-                    }
+                if self.dot == 1 { 
+                    self.status.set_vblank(false);
+                    self.status.set_overflow(false);
+                    self.status.set_sprite_hit(false);
+                }
+                if self.mask.rendering() && self.dot > 0 { 
+                    if self.dot % 8 == 0 && self.dot <= 256 { self.addr.coarse_x_increment(); }
+                    if self.dot == 256 { self.addr.coarse_y_increment(); }
+                    if self.dot == 257 { self.oam_addr = 0; self.addr.set_horizontal(self.temp); }
+                    if self.dot >= 280 && self.dot <= 304 { self.addr.set_vertical(self.temp); }
+                }
+                if self.dot == 339 && self.odd_frame && self.mask.rendering() { 
+                    self.scanline = 0; 
+                    self.dot = 0; 
                 }
             },
             0..=239 => {
-                if self.cycle > 0 {
-                    if self.cycle <= 256 {
+                if self.dot > 0 {
+                    if self.dot <= 256 {
                         let mut color = 0;
-                        if self.mask.show_background() && (self.cycle > 8 || self.mask.show_background_leftmost()) {
+                        if self.mask.show_background() && (self.dot > 7 || self.mask.show_background_leftmost()) {
                             let v = self.addr.get();
-                            let fine_x = 8 - (self.fine_x + ((self.cycle as u8) % 8));
+                            let fine_x = 8 - (self.fine_x + ((self.dot as u8) % 8));
                             let fine_y = (v & 0x7000) >> 12;
 
                             // https://www.nesdev.org/wiki/PPU_scrolling#Wrapping_around
@@ -95,8 +92,8 @@ impl PPU {
                             let attr_data = self.vram[self.mirror_vram_addr(attr_addr) as usize];
 
                             let half_pattern_table = self.ctrl.get_background_pattern_addr();
-                            let color_addr_0 = half_pattern_table | (tile as u16) << 4 | 0 << 3 | fine_y;
                             let color_addr_1 = half_pattern_table | (tile as u16) << 4 | 1 << 3 | fine_y;
+                            let color_addr_0 = half_pattern_table | (tile as u16) << 4 | 0 << 3 | fine_y;
                             let color_bit_0 = ( self.mapper.borrow().read_chr(color_addr_0) >> fine_x) & 0x1;
                             let color_bit_1 = ( self.mapper.borrow().read_chr(color_addr_1) >> fine_x) & 0x1;
                             let color_tile = (color_bit_1 << 1) | color_bit_0;
@@ -112,29 +109,29 @@ impl PPU {
                     }
 
                     if self.mask.rendering() {
-                        if self.cycle % 8 == 0 && self.cycle <= 256 { self.addr.coarse_x_increment(); }
-                        if self.cycle == 256 { self.addr.coarse_y_increment(); }
-                        if self.cycle == 257 { self.oam_addr = 0; self.addr.set_horizontal(self.temp); }
+                        if self.dot % 8 == 0 && self.dot <= 256 { self.addr.coarse_x_increment(); } 
+                        if self.dot == 256 { self.addr.coarse_y_increment(); }
+                        if self.dot == 257 { self.oam_addr = 0; self.addr.set_horizontal(self.temp); }
                     }
                 }
+
             },
             240..=260 => {
-                if self.scanline == 241 && self.cycle == 1 { 
+                if self.scanline == 241 && self.dot == 1 && !self.surpress_vbl { 
                     self.odd_frame = !self.odd_frame;
                     self.status.set_vblank(true);
                     if self.ctrl.generate_nmi() { self.nmi_ocurred = true; }
                 }
             }
         }
-        self.cycle += 1;
-        if self.cycle == 341 { 
+        self.dot += 1;
+        if self.dot == 341 { 
             self.scanline = (self.scanline + 1) % 262; 
-            self.cycle = 0; 
+            self.dot = 0; 
         }
     }
 
     pub fn write_to_scroll(&mut self, value: u8) {
-        // Changes made to the vertical scroll during rendering will only take effect on the next frame. 
         if !self.addr.latch() {
             self.fine_x = value & 0x7;
             let value = value >> 3;
@@ -148,6 +145,11 @@ impl PPU {
     }
 
     pub fn read_status(&mut self) -> u8 {
+        if self.scanline == 241 && self.dot == 0 { 
+            self.surpress_vbl = true; 
+        } else {
+            self.surpress_vbl = false; 
+        } 
         let status = self.status.bits();
         self.status.set_vblank(false);
         self.addr.reset_latch();
@@ -189,12 +191,6 @@ impl PPU {
 
     pub fn write_data(&mut self, value: u8) {
         let addr = self.addr.get() & 0x3FFF;
-        // if !self.status.is_vblank() && self.mask.rendering() {
-        //     self.addr.coarse_x_increment();
-        //     self.addr.coarse_y_increment();
-        // } else {
-        //     self.increment_vram_addr();
-        // }
         self.increment_vram_addr();
         match addr {
             0..=0x1FFF => {
@@ -220,12 +216,6 @@ impl PPU {
 
     pub fn read_data(&mut self) -> u8 {
         let addr = self.addr.get() & 0x3FFF;
-        // if !self.status.is_vblank() && self.mask.rendering() {
-        //     self.addr.coarse_x_increment();
-        //     self.addr.coarse_y_increment();
-        // } else {
-        //     self.increment_vram_addr();
-        // }
         self.increment_vram_addr();
         match addr {
             0..=0x1FFF => {

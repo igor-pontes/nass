@@ -43,18 +43,17 @@ impl CPU {
             self.cycle -= 1;
             return;
         }
+        let op = self.bus.read(self.pc);
+        self.pc += 1;
+        if self.execute_implied(op) || self.execute_immediate(op) || self.execute_relative(op) || self.operation3(op) ||  self.operation2(op) || self.operation1(op) || self.operation0(op) {
+            self.cycle += (CYCLES[op as usize] & CYCLES_MASK) as usize;
+        }
         if (*interrupt) == Interrupt::NMI {
             self.execute_nmi();
             (*interrupt) = Interrupt::DISABLED; 
             self.cycle -= 1;
             return;
         }
-        let op = self.bus.read(self.pc);
-        self.pc += 1;
-        if self.execute_implied(op) || self.execute_immediate(op) || self.execute_relative(op) || self.operation3(op) ||  self.operation2(op) || self.operation1(op) || self.operation0(op) {
-            self.cycle += (CYCLES[op as usize] & CYCLES_MASK) as usize;
-        }
-
         self.cycle -= 1;
     }
 
@@ -169,13 +168,13 @@ impl CPU {
             AddrMode::ZpInd => {
                 let addr = self.bus.read(self.pc);
                 self.pc += 1;
-                let index = if inst == 0xB6 || inst == 0x96 { self.y } else { self.x };
+                let index = if inst == 0xB6 || inst == 0x96 || inst == 0x97 || inst == 0xB7 { self.y } else { self.x };
                 (addr + index) as u16
             },
             AddrMode::AbsInd => {
                 let addr = self.read_address(self.pc);
                 self.pc += 2;
-                let index = if inst == 0xBE { self.y } else { self.x } as u16;
+                let index = if inst == 0xBE || inst == 0x9E || inst == 0x9F || inst == 0xBF { self.y } else { self.x } as u16;
                 let operand = addr + index;
                 if cross_page { self.set_page_crossed(addr, operand) }
                 operand
@@ -341,8 +340,9 @@ impl CPU {
         if opcode & OP_MASK == 0 {
             let mut inst = (opcode & INST_MODE_MASK) >> INST_MODE_SHIFT;
             let mut addr_mode = (opcode & ADDR_MODE_MASK) >> ADDR_MODE_SHIFT;
-            if opcode == 0x20 { inst = 0; addr_mode = 3; }
-            if opcode == 0x6C { addr_mode = 2; }
+            if opcode == 0x20 { inst = 0; addr_mode = 3 }
+            if opcode == 0x6C { addr_mode = 2 }
+            if opcode == 0x9C { inst = 8 }
             let value = self.get_address_mode(&ADDR0[addr_mode as usize], opcode);
             let inst = match Operation0::try_from(inst) {
                 Ok(op) => op,
@@ -381,6 +381,7 @@ impl CPU {
                     self.status.set_carry(self.x >= value);
                     self.status.set_zero_negative(diff);
                 }
+                SHY => ()
             }
             return true
         } 

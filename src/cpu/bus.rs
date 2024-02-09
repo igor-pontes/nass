@@ -3,14 +3,6 @@ use std::cell::RefCell;
 use crate::mapper::*;
 use crate::ppu::PPU;
 
-use wasm_bindgen::prelude::*;
-
-#[wasm_bindgen]
-extern {
-    #[wasm_bindgen(js_namespace = console)]
-    fn log(s: &str);
-}
-
 const RAM_SIZE: usize = 0x800;
 
 pub struct BUS {
@@ -31,7 +23,6 @@ impl BUS {
     }
 
     pub fn write(&mut self, addr: u16, value: u8) {
-        if addr == 0x6000 { log(&format!("{value:#06x}")); }
         match addr {
             0x0000..=0x1FFF => self.ram[(addr as usize) & 0x07FF] = value,
             0x2000 => self.ppu.borrow_mut().write_to_ctrl(value),
