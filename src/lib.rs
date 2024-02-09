@@ -1,10 +1,10 @@
-use js_sys::{ ArrayBuffer, Uint8Array };
-
 mod ppu;
 mod cpu;
 mod mapper;
 mod frame;
 mod emulator;
+
+use js_sys::{ ArrayBuffer, Uint8Array };
 use { 
     std::cell::RefCell,
     crate::emulator::*, 

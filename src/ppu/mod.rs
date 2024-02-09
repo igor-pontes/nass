@@ -71,7 +71,7 @@ impl PPU {
                     if self.dot == 257 { self.oam_addr = 0; self.addr.set_horizontal(self.temp); }
                     if self.dot >= 280 && self.dot <= 304 { self.addr.set_vertical(self.temp); }
                 }
-                if self.dot == 339 && self.odd_frame && self.mask.rendering() { 
+                if self.dot == 340 && self.odd_frame && self.mask.rendering() { 
                     self.scanline = 0; 
                     self.dot = 0; 
                 }

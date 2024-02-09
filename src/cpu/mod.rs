@@ -70,7 +70,7 @@ impl CPU {
     }
 
     fn execute_nmi(&mut self) {
-        self.cycle = 7;
+        self.cycle += 7;
         self.push_stack(((self.pc & 0xFF00) >> 8) as u8);
         self.push_stack((self.pc & 0x00FF) as u8);
         self.push_stack(self.status.bits() & !0x10);
