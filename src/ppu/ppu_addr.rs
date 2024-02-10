@@ -1,11 +1,11 @@
-pub struct AddrRegister {
+pub struct PPUAddr {
     value: (u8, u8),
     latch: bool
 }
 
-impl AddrRegister {
+impl PPUAddr {
     pub fn new() -> Self {
-        AddrRegister {
+        PPUAddr {
             value: (0, 0), // high - low
             latch: false,
         }

@@ -160,7 +160,8 @@ pub const ADDR: [AddrMode; 8] = [
 ];
 
 pub const CYCLES_MASK: u8 = 0x7F;
-pub const CYCLES_CROSS_MASK: u8 = 0x80; // 0x80 = do not cross page
+pub const CYCLES_CROSS_MASK: u8 = 0x80; // 0x80 = Intruction does not need to check if page is
+                                        // crossed if Address Mode requires it.
 pub const CYCLES: [u8; 0x100] = [
     // 0     1     2     3     4     5     6     7     8     9     A     B     C     D     E     F 
     0x07, 0x06, 0x00, 0x08, 0x03, 0x03, 0x05, 0x05, 0x03, 0x02, 0x02, 0x02, 0x04, 0x04, 0x06, 0x06, // 0

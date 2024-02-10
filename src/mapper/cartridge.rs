@@ -1,4 +1,5 @@
 use crate::mapper::*;
+use wasm_bindgen::prelude::*;
 
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum Mirroring {
@@ -9,12 +10,18 @@ pub enum Mirroring {
     FourScreen
 }
 
-pub fn new(bytes: &Vec<u8>) -> Result<Box<dyn Mapper>, String> {
+#[wasm_bindgen]
+extern {
+    #[wasm_bindgen(js_namespace = console)]
+    fn log(s: &str);
+}
+
+pub fn new(bytes: Vec<u8>) -> Result<Mapper_, String> {
     if bytes[0] == 0x4E && bytes[1] == 0x45 && bytes[2] == 0x53 && bytes[3] == 0x1A {
         if bytes[7] & 0x12 == 2 { return Err("NES 2.0 not supported(yet).".to_string()) }
 
         let prg_rom_banks = bytes[4] as usize; // 16384
-       // Size of CHR ROM in 8 KB units (value 0 means the board uses CHR RAM)
+        // Size of CHR ROM in 8 KB units (value 0 means the board uses CHR RAM)
         let chr_rom_banks = bytes[5] as usize; // 8192
 
         let four_screen = bytes[6] & 0x8 != 0;
@@ -39,9 +46,9 @@ pub fn new(bytes: &Vec<u8>) -> Result<Box<dyn Mapper>, String> {
             Ok(mapper) => mapper,
             Err(str) => return Err(str)
         };
+        log(&format!("[{mapper}] PRG_ROM_BANKS: {prg_rom_banks} | CHR_ROM_BANKS: {chr_rom_banks}", ));
 
         Ok(mapper)
-
     } else {
         Err("Only NES files supported.".to_string())
     }

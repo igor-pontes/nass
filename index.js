@@ -1,14 +1,6 @@
-import init, { disassemble, step, get_frame_pointer, get_palette_pointer } from "./pkg/nass.js";
+import init, { disassemble, step, get_frame_pointer, get_color } from "./pkg/nass.js";
 
 // https://en.wikipedia.org/wiki/List_of_video_game_console_palettes#Nintendo_Entertainment_System
-
-const COLORS  = [
-    "#59595f", "#00008f", "#18008f", "#3f0077", "#505", "#501", "#500", "#420", "#330", "#130", "#031", "#044", "#046", "#000", "#080808", "#080808",
-    "#aaa", "#04d", "#51e", "#70e", "#90b", "#a05", "#930", "#840", "#660", "#360", "#060", "#065", "#058", "#080808", "#080808", "#080808",
-    "#eee", "#48f", "#77f", "#94f", "#b4e", "#c59", "#d64", "#c80", "#ba0", "#7b0", "#2b2", "#2b7", "#2bc", "#444", "#080808", "#080808",
-    "#eee", "#9cf", "#aaf", "#b9f", "#d9f", "#e9d", "#eaa", "#eb9", "#ed8", "#bd8", "#9d9", "#9db", "#9de", "#aaa", "#080808", "#080808",
-];
-
 
 const PIXEL_SIZE = 2;
 const WIDTH = 256;
@@ -31,26 +23,36 @@ let buffer = new Uint8Array();
 
 document.getElementById("rom-input").onchange = getFile;
 
+const getRgba = (r, g, b, a) => `rgba(${r}, ${g}, ${b}, ${a})`;
+
 const drawCells = (pointer) => {
   for (let row = 0; row < HEIGHT; row++) {
     for (let col = 0; col < WIDTH; col++) {
-        const color = COLORS[buffer[pointer + row * WIDTH + col]];
-        ctx.fillStyle = color;
+        ctx.fillStyle = getRgba(0, 0, 0, 0xFF);
+        const offset = pointer + row * WIDTH*4 + col*4;
+        const red = buffer[offset + 3];
+        const green = buffer[offset + 2];
+        const blue = buffer[offset + 1];
+        const alpha = buffer[offset];
+        ctx.fillStyle = getRgba(red, green, blue, alpha);
         ctx.fillRect(col * PIXEL_SIZE, row * PIXEL_SIZE, PIXEL_SIZE, PIXEL_SIZE);
+
     }
   }
 }
 
-const drawPalettes = (pointer) => {
+const drawPalettes = (getColor) => {
   for (let row = 0; row < 32/PALETTE_WIDTH; row++) {
     for (let col = 0; col < PALETTE_WIDTH; col++) {
-        let index = row * PALETTE_WIDTH + col;
-        if (index >= 0x10 && index % 4 == 0) {
-            index -= 0x10;
-        }
-        const color = COLORS[buffer[pointer + index]];
-        pctx.fillStyle = color;
-        pctx.fillRect(col * PALETTE_SIZE, row * PALETTE_SIZE, PALETTE_SIZE, PALETTE_SIZE);
+      let index = row * PALETTE_WIDTH + col;
+      if (index >= 0x10 && index % 4 == 0) { index -= 0x10; }
+      const color = getColor(index);
+      const red = (color & 0xFF000000) >>> 24;
+      const green = (color & 0x00FF0000) >>> 16;
+      const blue = (color & 0x0000FF00) >>> 8;
+      const alpha = (color & 0x000000FF);
+      pctx.fillStyle = getRgba(red, green, blue, alpha);
+      pctx.fillRect(col * PALETTE_SIZE, row * PALETTE_SIZE, PALETTE_SIZE, PALETTE_SIZE);
     }
   }
 }
@@ -70,7 +72,7 @@ function getFile() {
     buffer = new Uint8Array(wasm.memory.buffer);
     const fn = () => {
       drawCells(get_frame_pointer());
-      drawPalettes(get_palette_pointer());
+      drawPalettes(get_color);
       step();
       requestAnimationFrame(fn); 
     }
@@ -79,4 +81,4 @@ function getFile() {
 }
 
 drawCells(0);
-drawPalettes(0);
+drawPalettes(() => 0xFF);

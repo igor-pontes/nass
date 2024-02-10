@@ -1,67 +1,36 @@
-use { 
-    std::cell::RefCell,
-    std::rc::Rc,
-    crate::{ cpu::*, mapper::*, ppu::* },
-};
+use crate::{ cpu::*, mapper::*, ppu::*};
 
-const CYCLES_PER_FRAME: usize = 29780 * 4;
+use wasm_bindgen::prelude::*;
 
-// https://www.nesdev.org/wiki/Status_flags#I:_Interrupt_Disable
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-pub enum Interrupt {
-    NMI,
-    IRQ,
-    DISABLED
+#[wasm_bindgen]
+extern {
+    #[wasm_bindgen(js_namespace = console)]
+    fn log(s: &str);
 }
 
 pub struct Emulator {
-    cpu: CPU,
-    ppu: Rc<RefCell<PPU>>,
-    interrupt: Interrupt,
+    pub cpu: CPU,
 }
 
 impl Emulator {
-    pub fn new(rom: &Vec<u8>) -> Self {
+    pub fn new(rom: Vec<u8>) -> Self {
         let mapper = match new(rom) { 
-            Ok(m) => Rc::new(RefCell::new(m)), 
+            Ok(m) => m, 
             Err(str) => { panic!("{str}"); }
         };
-        let ppu = Rc::new(RefCell::new(PPU::new(mapper.clone())));
         Emulator { 
-            cpu: CPU::new(BUS::new(mapper.clone(), ppu.clone())),
-            ppu,
-            interrupt: Interrupt::DISABLED,
+            cpu: CPU::new(BUS::new(mapper, PPU::new())),
         }
     }
     pub fn reset(&mut self) {
         self.cpu.reset();
     }
 
-    pub fn get_frame_pointer(&self) -> *const u8 {
-        self.ppu.borrow().frame.get_pointer()
+    pub fn get_frame_pointer(&self) -> *const u32 {
+        self.cpu.bus.ppu.frame.get_pointer()
     }
 
-    pub fn get_palette_pointer(&self) -> *const u8 {
-        self.ppu.borrow().palette_table.as_ptr()
-    }
-
-    pub fn step(&mut self) {
-        let mut cycles = 0; 
-        while cycles < CYCLES_PER_FRAME {
-            if self.cpu.bus.suspend { 
-                if self.cpu.odd_cycle { self.cpu.cycle += 513; } else { self.cpu.cycle += 514; }
-                self.cpu.bus.suspend = false;
-            }
-            self.cpu.step(&mut self.interrupt);
-            for _ in 0..3 {
-                self.ppu.borrow_mut().step();
-                if self.ppu.borrow().nmi_ocurred { 
-                    self.interrupt = Interrupt::NMI;
-                    self.ppu.borrow_mut().nmi_ocurred = false;
-                    break 
-                }
-            } 
-            cycles += 1;
-        }
+    pub fn get_color(&self, index: usize) -> u32 {
+        COLORS[self.cpu.bus.ppu.palette_table[index] as usize]
     }
 }

@@ -56,7 +56,8 @@ impl MMC1 {
         let chr_addr = if is_rom { Rom(0, None) } else { Ram(0, None) };
         MMC1 {
             sr: 0x10,
-            is_variant: !is_rom || chr_rom.len() == 8,
+            // is_variant: !is_rom || chr_rom.len() == 0x8000,
+            is_variant: false,
             chr_addr,
             prg_rom_addr: (Switch(0), Fixed),
             prg_ram_addr: 0,
@@ -221,11 +222,10 @@ impl Mapper for MMC1 {
         let rom_len = self.prg_rom.len();
         if rom_len == 0x4000 && addr >= 0x4000 { return self.prg_rom[addr % 0x4000] }
         match self.prg_rom_addr {
-            (Switch(x), Null) => addr += x + self.prg_area,
-            (Switch(x), _) if addr < 0x4000 => addr += x + self.prg_area,
-            (Fixed,     _) if addr < 0x4000 => addr += self.prg_area,
-            (_, Switch(x)) => addr -= PRG_BANK_SIZE_16 + x + self.prg_area,
-            (_, Fixed)     => addr += rom_len - 2*PRG_BANK_SIZE_16 + self.prg_area,
+            (_, Switch(x)) if addr >= 0x4000 => addr = addr - PRG_BANK_SIZE_16 + x + self.prg_area,
+            (_, Fixed) if addr >= 0x4000 => addr += rom_len - 2*PRG_BANK_SIZE_16 + self.prg_area,
+            (Switch(x), _) => addr += x + self.prg_area,
+            (Fixed,     _) => addr += self.prg_area,
             _  => panic!("MMC1: (Null, Null)")
         }
         self.prg_rom[addr]
@@ -250,7 +250,7 @@ impl Mapper for MMC1 {
 
     fn write_chr(&mut self, addr: u16, val: u8) { 
         match self.chr_addr {
-            Ram(_, Some(x)) => self.chr_ram[addr as usize + x - CHR_BANK_SIZE_4] = val,
+            Ram(_, Some(x)) if addr >= 0x1000 => self.chr_ram[addr as usize + x - CHR_BANK_SIZE_4] = val,
             Ram(x, _) => self.chr_ram[addr as usize + x] = val,
             _ => (),
         }

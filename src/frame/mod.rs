@@ -1,35 +1,28 @@
-
 pub struct Frame {
-    pub width: usize,
-    pub height: usize,
-    pub index: usize,
-    frame: [u8; 256*240],
+    frame: [u32; 256*240],
+    index: usize,
 }
 
 impl Frame {
+    const WIDTH: usize = 256;
+    const HEIGHT: usize = 240;
+
     pub fn new() -> Frame {
-        // 32 x 30 tiles
-        Frame {
-            width: 256,
-            height: 240,
-            index: 0,
-            frame: [0; 256*240],
+        Frame { 
+            frame: [0xFF; 256*240], // 0x000000FF = Black
+            index: 0
         }
     }
 
-    pub fn set_pixel(&mut self, color: u8) {
+    pub fn set_pixel(&mut self, color: u32) {
         self.frame[self.index] = color;
-        self.increment();
-    }
-
-    pub fn increment(&mut self) {
         self.index += 1;
-        if self.index == (self.height * self.width) {
+        if self.index == Frame::WIDTH * Frame::HEIGHT {
             self.index = 0;
         }
     }
 
-    pub fn get_pointer(&self) -> *const u8 {
+    pub fn get_pointer(&self) -> *const u32 {
         self.frame.as_ptr()
     }
 }
