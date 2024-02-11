@@ -7,7 +7,7 @@ use cpu_status::*;
 use crate::cpu::instructions::*;
 
 // CPU is guaranteed to receive NMI every interrupt
-const CYCLES_PER_FRAME: usize = 29780*2;
+const CYCLES_PER_FRAME: usize = 29780;
 const NMI_VECTOR: u16 = 0xFFFA; 
 const RESET_VECTOR: u16 = 0xFFFC;
 const IRQ_VECTOR: u16 = 0xFFFE;
@@ -65,7 +65,6 @@ impl CPU {
                 self.execute_nmi();
                 self.bus.interrupt = None;
             }
-            self.cycles_left -= 1;
             self.cycles += (self.cycles_left & 0xFF) as u8;
             self.bus.tick(self.cycles_left);
         }
