@@ -10,14 +10,14 @@ use crate::cpu::instructions::*;
 const CYCLES_PER_FRAME: usize = 29780;
 
 pub struct CPU {
-    pub a: u8, // Accumulator
-    pub y: u8, // register y
-    pub x: u8, // register x
-    pub pc: u16, // Program counter
-    pub s: u8, // Stack pointer (256-byte stack at $0100-$01FF.)
-    pub status: CPUStatus,
+    a: u8, // Accumulator
+    y: u8, // register y
+    x: u8, // register x
+    pc: u16, // Program counter
+    s: u8, // Stack pointer (256-byte stack at $0100-$01FF.)
+    status: CPUStatus,
     cycles_left: usize,
-    cycles: usize,
+    even_cycle: bool,
     pub bus: BUS,
 }
 
@@ -32,7 +32,7 @@ impl CPU {
             status: CPUStatus::new(),
             bus,
             cycles_left: 0,
-            cycles: 0,
+            even_cycle: true,
         }
     }
 
@@ -41,27 +41,35 @@ impl CPU {
         F: FnMut(&mut CPU),
     {
         for _ in 0..CYCLES_PER_FRAME {
+            self.tick();
+            self.bus.tick();
+        }
+    }
+
+    fn tick(&mut self) {
+        self.even_cycle = !self.even_cycle;
+        if self.cycles_left == 0 {
+            if let Some(Interrupt::Nmi) = self.bus.interrupt { 
+                self.nmi();
+                self.bus.interrupt = None;
+                return;
+            }
             let op = self.bus.read(self.pc);
             self.pc += 1;
-            let (fun, addr_mode) = &OPCODES[op as usize];
+            let (fun, addr_mode) = &CPU::OPCODES[op as usize];
             let addr = self.get_address_mode(addr_mode.clone()); 
             fun(self, addr);
             if self.bus.suspend { 
-                if self.cycles % 2 == 0 { 
+                if self.even_cycle { 
                     self.cycles_left += 513; 
                 } else { 
                     self.cycles_left += 514; 
                 }
                 self.bus.suspend = false;
             }
-            if let Some(Interrupt::Nmi) = self.bus.interrupt { 
-                self.nmi();
-                self.bus.interrupt = None;
-            }
-            self.bus.tick(self.cycles_left);
-            self.cycles += self.cycles_left;
-            self.cycles_left = 0;
+
         }
+        self.cycles_left -= 1;
     }
 
     pub fn reset(&mut self) {
@@ -75,7 +83,7 @@ impl CPU {
     }
 
     fn nmi(&mut self) {
-        self.cycles_left += 7; 
+        self.cycles_left = 7; 
         self.push_stack(((self.pc & 0xFF00) >> 8) as u8);
         self.push_stack((self.pc & 0x00FF) as u8);
         self.push_stack(self.status.bits() & !0x10);
