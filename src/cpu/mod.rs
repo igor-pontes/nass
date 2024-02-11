@@ -7,7 +7,7 @@ use cpu_status::*;
 use crate::cpu::instructions::*;
 
 // CPU is guaranteed to receive NMI every interrupt
-const CYCLES_PER_FRAME: usize = 29780 * 2;
+const CYCLES_PER_FRAME: usize = 29780*2;
 const NMI_VECTOR: u16 = 0xFFFA; 
 const RESET_VECTOR: u16 = 0xFFFC;
 const IRQ_VECTOR: u16 = 0xFFFE;
@@ -19,9 +19,9 @@ pub struct CPU {
     pc: u16, // Program counter
     s: u8, // Stack pointer (256-byte stack at $0100-$01FF.)
     status: CPUStatus,
-    cycles: usize,
+    cycles: u8,
+    cycles_left: usize,
     pub bus: BUS,
-    odd_cycle: bool,
 }
 
 impl CPU {
@@ -35,7 +35,7 @@ impl CPU {
             status: CPUStatus::new(),
             bus,
             cycles: 0,
-            odd_cycle: true,
+            cycles_left: 0,
         }
     }
 
@@ -44,31 +44,30 @@ impl CPU {
         F: FnMut(&mut CPU),
     {
         for _ in 0..CYCLES_PER_FRAME {
-            self.odd_cycle = !self.odd_cycle;
-            if self.cycles == 0 {
-                let op = self.bus.read(self.pc);
-                self.pc += 1;
-                if  self.execute_implied(op) || 
-                    self.execute_immediate(op) || 
-                    self.execute_relative(op) || 
-                    self.operation3(op) || 
-                    self.operation2(op) || 
-                    self.operation1(op) || 
-                    self.operation0(op) 
-                {
-                    self.cycles += (CYCLES[op as usize] & CYCLES_MASK) as usize;
-                }
-                if let Some(Interrupt::Nmi) = self.bus.interrupt { 
-                    self.bus.interrupt = None;
-                    self.execute_nmi() 
-                }
-                if self.bus.suspend { 
-                    if self.odd_cycle { self.cycles += 513; } else { self.cycles += 514; }
-                    self.bus.suspend = false;
-                }
+            self.cycles_left = 0;
+            let op = self.bus.read(self.pc);
+            self.pc += 1;
+            if  self.execute_implied(op) || 
+                self.execute_immediate(op) || 
+                self.execute_relative(op) || 
+                self.operation3(op) || 
+                self.operation2(op) || 
+                self.operation1(op) || 
+                self.operation0(op) 
+            {
+                self.cycles_left += (CYCLES[op as usize] & CYCLE_MASK) as usize;
             }
-            self.cycles -= 1;
-            self.bus.tick(self.cycles);
+            if self.bus.suspend { 
+                if self.cycles % 2 == 0 { self.cycles_left += 513; } else { self.cycles_left += 514; }
+                self.bus.suspend = false;
+            }
+            if let Some(Interrupt::Nmi) = self.bus.interrupt { 
+                self.execute_nmi();
+                self.bus.interrupt = None;
+            }
+            self.cycles_left -= 1;
+            self.cycles += (self.cycles_left & 0xFF) as u8;
+            self.bus.tick(self.cycles_left);
         }
     }
 
@@ -77,14 +76,13 @@ impl CPU {
         self.y = 0;
         self.a = 0;
         self.s = 0xFD;
-        self.cycles += 7;
+        self.cycles_left = 7;
         self.status = CPUStatus::new();
         self.pc = self.read_address(RESET_VECTOR);
-        self.odd_cycle = true;
     }
 
     fn execute_nmi(&mut self) {
-        self.cycles += 7;
+        self.cycles_left += 7;
         self.push_stack(((self.pc & 0xFF00) >> 8) as u8);
         self.push_stack((self.pc & 0x00FF) as u8);
         self.push_stack(self.status.bits() & !0x10);
@@ -103,7 +101,7 @@ impl CPU {
                 self.pc += 1;
                 let old_pc = self.pc;
                 let (new_pc, _) = old_pc.overflowing_add_signed(offset as i16);
-                self.cycles += 1;
+                self.cycles_left += 1;
                 self.set_page_crossed(old_pc, new_pc);
                 self.pc = new_pc;
             } else { 
@@ -115,11 +113,11 @@ impl CPU {
     }
 
     fn set_page_crossed(&mut self, a: u16, b: u16) {
-        if a & 0xFF00 != b & 0xFF00 { self.cycles += 1; }
+        if a & 0xFF00 != b & 0xFF00 { self.cycles_left += 1; }
     }
 
     fn get_address_mode(&mut self, addr_mode: &AddrMode, inst: u8) -> u16 {
-        let cross_page = (CYCLES[inst as usize] & CYCLES_CROSS_MASK) != CYCLES_CROSS_MASK;
+        let cross_page = (CYCLES[inst as usize] & CYCLE_PAGE_CROSS_MASK) != CYCLE_PAGE_CROSS_MASK;
         match addr_mode {
             AddrMode::Imm => {
                 let operand = self.pc;
@@ -199,7 +197,8 @@ impl CPU {
 
     fn add(&mut self, value: u8) {
         let carry = self.status.bits() & 0x1 == 1;
-        let (sum, carry) = add(self.a, value, carry);
+        // let (sum, carry) = add(self.a, value, carry);
+        let (sum, carry) = self.a.carrying_add(value, carry);
         self.status.set_carry(carry);
         self.status.set_overflow(((self.a ^ sum) & (value ^ sum) & 0x80) != 0);
         self.a = sum;
@@ -446,7 +445,7 @@ impl CPU {
                     let carry_op = (operand & 0x1) == 1;
                     operand = (operand >> 1) | carry << 7;
                     self.bus.write(addr, operand);
-                    let (sum, carry) = add(self.a, operand, carry_op);
+                    let (sum, carry) = self.a.carrying_add(operand, carry_op);
                     self.status.set_carry(carry);
                     self.status.set_overflow(((self.a ^ sum) & (operand ^ sum) & 0x80) != 0);
                     self.a = sum;
@@ -519,7 +518,7 @@ impl CPU {
             },
             SBX => {
                 let value = self.x & self.a; 
-                let (sum, carry) = add(!value, operand, false);
+                let (sum, carry) = (!value).carrying_add(operand, false);
                 self.x = sum;
                 self.status.set_carry(carry);
                 self.status.set_zn(self.x);

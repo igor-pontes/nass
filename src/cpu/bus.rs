@@ -67,9 +67,10 @@ impl BUS {
     }
 
     pub fn tick(&mut self, cycles: usize) {
-        for _ in 0..(3) {
+        for _ in 0..(3 * cycles) {
             if self.ppu.tick(&mut self.mapper) { 
                 self.interrupt = Some(Nmi); 
+                break;
             } 
         }
     }

@@ -1,11 +1,11 @@
 pub struct Frame {
-    frame: [u32; 256*240],
+    frame: [u32; Frame::WIDTH*Frame::HEIGHT],
     index: usize,
 }
 
 impl Frame {
-    const WIDTH: usize = 256;
-    const HEIGHT: usize = 240;
+    pub const WIDTH: usize = 256;
+    pub const HEIGHT: usize = 240;
 
     pub fn new() -> Frame {
         Frame { 

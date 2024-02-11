@@ -6,13 +6,6 @@ pub const ADDR_MODE_SHIFT: u8 = 0x02;
 pub const INST_MODE_MASK: u8 = 0xE0; // 0b11100000
 pub const INST_MODE_SHIFT: u8 = 0x05; // We only care about first 3 digits
 
-
-pub fn add(a: u8, b: u8, carry: bool) -> (u8, bool) {
-    let (sum, c1) = a.overflowing_add(b);
-    let (sum, c2) = sum.overflowing_add(carry as u8);
-    (sum, c1 || c2)
-}
-
 #[repr(u8)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq, TryFromPrimitive)]
 pub enum ImplicitOps {
@@ -159,8 +152,8 @@ pub const ADDR: [AddrMode; 8] = [
     AddrMode::AbsInd // X or Y
 ];
 
-pub const CYCLES_MASK: u8 = 0x7F;
-pub const CYCLES_CROSS_MASK: u8 = 0x80; // 0x80 = Intruction does not need to check if page is
+pub const CYCLE_MASK: u8 = 0x7F;
+pub const CYCLE_PAGE_CROSS_MASK: u8 = 0x80; // 0x80 = Intruction does not need to check if page is
                                         // crossed if Address Mode requires it.
 pub const CYCLES: [u8; 0x100] = [
     // 0     1     2     3     4     5     6     7     8     9     A     B     C     D     E     F 

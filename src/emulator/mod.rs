@@ -1,13 +1,5 @@
 use crate::{ cpu::*, mapper::*, ppu::*};
 
-use wasm_bindgen::prelude::*;
-
-#[wasm_bindgen]
-extern {
-    #[wasm_bindgen(js_namespace = console)]
-    fn log(s: &str);
-}
-
 pub struct Emulator {
     pub cpu: CPU,
 }

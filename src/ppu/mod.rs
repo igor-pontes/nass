@@ -17,14 +17,6 @@ use self::{
     ppu_status::PPUStatus,
 };
 
-use wasm_bindgen::prelude::*;
-
-#[wasm_bindgen]
-extern {
-    #[wasm_bindgen(js_namespace = console)]
-    fn log(s: &str);
-}
-
 pub struct PPU {
     pub palette_table: [u8; 0x20],
     vram: [u8; 0x800], // Nametables (2kB)
@@ -40,7 +32,8 @@ pub struct PPU {
     line: Line,
     dot: usize,
     pub frame: Frame,
-    even_frame: bool
+    even_frame: bool,
+    surpress_vbl: bool,
 }
 
 impl PPU {
@@ -60,7 +53,8 @@ impl PPU {
             line: Render(0),
             dot: 0,
             frame: Frame::new(),
-            even_frame: true
+            even_frame: true,
+            surpress_vbl: false,
         }
     }
 
@@ -68,57 +62,65 @@ impl PPU {
         let mut nmi_occured = false;
         match self.line {
             PreRender => {
-                if self.dot == 1 { self.status.reset(); }
+
+                if self.dot == 1 { 
+                    self.even_frame = !self.even_frame;
+                    self.status.reset(); 
+                }
                 if self.mask.rendering() && self.dot > 0 {
                     if self.dot % 8 == 0 && self.dot <= 256 { self.addr.coarse_x_increment(); } 
                     if self.dot == 256 { self.addr.coarse_y_increment(); }
-                    if self.dot == 257 { self.oam_addr = 0; self.addr.set_horizontal(self.temp); }
+                    if self.dot == 257 { self.addr.set_horizontal(self.temp); }
                     if self.dot >= 280 && self.dot <= 304 { self.addr.set_vertical(self.temp); }
                 }
             },
             Render(_) => {
-                if self.dot < 256 {
-                    let mut color = 0;
-                    if self.mask.show_background() && (self.dot > 7 || self.mask.show_background_leftmost()) {
-                        let v = self.addr.get();
-                        let fine_x = 8 - (self.fine_x + ((self.dot as u8) % 8));
-                        let fine_y = (v & 0x7000) >> 12;
+                if self.dot > 0 {
+                    if self.dot <= 256 {
+                       let mut color = 0;
+                       if self.mask.show_background() && (self.dot > 7 || self.mask.show_background_leftmost()) {
+                           let v = self.addr.get();
+                           let fine_x = 8 - (self.fine_x + ((self.dot as u8) % 8));
+                           let fine_y = (v & 0x7000) >> 12;
 
-                        let tile_addr = 0x2000 | (v & 0x0FFF);
-                        let tile = self.vram[mapper.mirror(tile_addr) as usize];
-                        let attr_addr = 0x23C0 | (v & 0x0C00) | ((v >> 4) & 0x38) | ((v >> 2) & 0x07);
-                        let attr_data = self.vram[mapper.mirror(attr_addr) as usize];
-                        let half_pattern_table = self.ctrl.get_background_pattern_addr();
+                           let tile_addr = 0x2000 | (v & 0x0FFF);
+                           let tile = self.vram[mapper.mirror(tile_addr) as usize];
+                           let attr_addr = 0x23C0 | (v & 0x0C00) | ((v >> 4) & 0x38) | ((v >> 2) & 0x07);
+                           let attr_data = self.vram[mapper.mirror(attr_addr) as usize];
+                           let half_pattern_table = self.ctrl.get_background_pattern_addr();
 
-                        let color_addr_1 = half_pattern_table | (tile as u16) << 4 | 1 << 3 | fine_y;
-                        let color_addr_0 = half_pattern_table | (tile as u16) << 4 | 0 << 3 | fine_y;
-                        let color_bit_0 = ( mapper.read_chr(color_addr_0) >> fine_x) & 0x1;
-                        let color_bit_1 = ( mapper.read_chr(color_addr_1) >> fine_x) & 0x1;
-                        let color_tile = (color_bit_1 << 1) | color_bit_0;
+                           let color_addr_1 = half_pattern_table | (tile as u16) << 4 | 1 << 3 | fine_y;
+                           let color_addr_0 = half_pattern_table | (tile as u16) << 4 | 0 << 3 | fine_y;
+                           let color_bit_0 = ( mapper.read_chr(color_addr_0) >> fine_x) & 0x1;
+                           let color_bit_1 = ( mapper.read_chr(color_addr_1) >> fine_x) & 0x1;
+                           let color_tile = (color_bit_1 << 1) | color_bit_0;
 
-                        let tile_column = (v & 0x001f) as u8;
-                        let tile_row = ((v & 0x03e0) >> 5) as u8;
-                        let quadrant = (tile_row & 0x2) + ((tile_column & 0x2) >> 1);
-                        let offset = quadrant * 2;
-                        let attr_color = (attr_data >> offset) & 0x3;
-                        color = self.palette_table[(attr_color << 2 | color_tile) as usize];
+                           let tile_column = (v & 0x001f) as u8;
+                           let tile_row = ((v & 0x03e0) >> 5) as u8;
+                           let quadrant = (tile_row & 0x2) + ((tile_column & 0x2) >> 1);
+                           let offset = quadrant * 2;
+                           let attr_color = (attr_data >> offset) & 0x3;
+                           color = self.palette_table[(attr_color << 2 | color_tile) as usize];
+                       }
+                       self.frame.set_pixel(COLORS[color as usize]);
                     }
-                    self.frame.set_pixel(COLORS[color as usize]);
-                }
-                if self.mask.rendering() && self.dot > 0 {
-                    if self.dot % 8 == 0 && self.dot <= 256 { self.addr.coarse_x_increment(); } 
-                    if self.dot == 256 { self.addr.coarse_y_increment(); }
-                    if self.dot == 257 { self.oam_addr = 0; self.addr.set_horizontal(self.temp); }
+                    if self.mask.rendering() {
+                        if self.dot % 8 == 0 && self.dot <= 256 { self.addr.coarse_x_increment(); } 
+                        if self.dot == 256 { self.addr.coarse_y_increment(); }
+                        if self.dot == 257 { self.addr.set_horizontal(self.temp); }
+                    }
                 }
             },
             PostRender(line) => {
                 if line == 241 && self.dot == 1 {
-                    self.status.set_vblank(true);
-                    if self.ctrl.generate_nmi() { nmi_occured = true; }
+                    if !self.surpress_vbl {
+                        self.status.set_vblank(true);
+                        if self.ctrl.generate_nmi() { nmi_occured = true; }
+                    }
                 }
             },
         }
-        self.line = self.line.next(self.mask.rendering(), &mut self.dot, &mut self.even_frame);
+        self.line = self.line.next(self.mask.rendering(), &mut self.dot, self.even_frame);
         nmi_occured
     }
 
@@ -136,6 +138,11 @@ impl PPU {
     }
 
     pub fn read_status(&mut self) -> u8 {
+        if self.line.get_line() == 241 && self.dot == 0 { 
+            self.surpress_vbl = true; 
+        } else {
+            self.surpress_vbl = false; 
+        }
         let status = self.status.bits();
         self.status.set_vblank(false);
         self.addr.reset_latch();

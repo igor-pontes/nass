@@ -1,3 +1,5 @@
+#![feature(bigint_helper_methods)]
+
 mod ppu;
 mod cpu;
 mod mapper;
