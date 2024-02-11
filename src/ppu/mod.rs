@@ -33,7 +33,7 @@ pub struct PPU {
     dot: usize,
     pub frame: Frame,
     even_frame: bool,
-    surpress_vbl: bool,
+    pub nmi_occured: bool
 }
 
 impl PPU {
@@ -54,15 +54,14 @@ impl PPU {
             dot: 0,
             frame: Frame::new(),
             even_frame: true,
-            surpress_vbl: false,
+            nmi_occured: false
         }
     }
 
     pub fn tick(&mut self, mapper: &mut Mapper_) -> bool {
-        let mut nmi_occured = false;
+        let mut vblank = false;
         match self.line {
             PreRender => {
-
                 if self.dot == 1 { 
                     self.even_frame = !self.even_frame;
                     self.status.reset(); 
@@ -113,15 +112,16 @@ impl PPU {
             },
             PostRender(line) => {
                 if line == 241 && self.dot == 1 {
-                    if !self.surpress_vbl {
-                        self.status.set_vblank(true);
-                        if self.ctrl.generate_nmi() { nmi_occured = true; }
+                    self.status.set_vblank(true);
+                    if self.ctrl.generate_nmi() { 
+                        self.nmi_occured = true; 
                     }
+                    vblank = true;
                 }
             },
         }
         self.line = self.line.next(self.mask.rendering(), &mut self.dot, self.even_frame);
-        nmi_occured
+        vblank
     }
 
     pub fn write_to_scroll(&mut self, value: u8) {
@@ -138,11 +138,6 @@ impl PPU {
     }
 
     pub fn read_status(&mut self) -> u8 {
-        if self.line.get_line() == 241 && self.dot == 0 { 
-            self.surpress_vbl = true; 
-        } else {
-            self.surpress_vbl = false; 
-        }
         let status = self.status.bits();
         self.status.set_vblank(false);
         self.addr.reset_latch();
