@@ -30,34 +30,28 @@ pub enum AddrMode {
 
 impl CPU {
 
-    fn relative(&mut self, opcode: u8) { 
-        let bits = self.status.bits();
-        let status = [(0x80 & bits) >> 7, (0x40 & bits) >> 6, 0x01 & bits, (0x02 & bits) >> 1];
-        if (opcode & 0x1F) == 0x10 {
-            let inst = (opcode & 0xC0) >> 6;
-            let cond = (opcode & 0x20) >> 5;
-            if status[inst as usize] == cond {
-                let offset = self.bus.read(self.pc) as i8;
-                self.pc += 1;
-                let old_pc = self.pc;
-                let (new_pc, _) = old_pc.overflowing_add_signed(offset as i16);
-                self.cycles_left += 1;
-                self.set_page_crossed(old_pc, new_pc);
-                self.pc = new_pc;
-            } else { 
-                self.pc += 1;
-            }
+    fn relative(&mut self, cond: bool) { 
+        if cond {
+            let offset = self.bus.read(self.pc) as u16;
+            self.pc += 1;
+            let offset = if offset > 127 { 0xFFFF - (256 - offset) + 1 } else { offset };
+            let new_pc = self.pc + offset;
+            self.cycles_left += 1;
+            self.set_page_crossed(self.pc, new_pc);
+            self.pc = new_pc;
+        } else { 
+            self.pc += 1;
         }
     }
 
-    fn bpl(&mut self, _: u16) { self.relative(0x10); }
-    fn bmi(&mut self, _: u16) { self.relative(0x30); }
-    fn bvc(&mut self, _: u16) { self.relative(0x50); }
-    fn bvs(&mut self, _: u16) { self.relative(0x70); }
-    fn bcc(&mut self, _: u16) { self.relative(0x90); }
-    fn bcs(&mut self, _: u16) { self.relative(0xB0); }
-    fn bne(&mut self, _: u16) { self.relative(0xD0); }
-    fn beq(&mut self, _: u16) { self.relative(0xF0); }
+    fn bpl(&mut self, _: u16) { self.relative(!self.status.negative()); }
+    fn bmi(&mut self, _: u16) { self.relative(self.status.negative()); }
+    fn bvc(&mut self, _: u16) { self.relative(!self.status.overflow()); }
+    fn bvs(&mut self, _: u16) { self.relative(self.status.overflow()); }
+    fn bcc(&mut self, _: u16) { self.relative(!self.status.carry()); }
+    fn bcs(&mut self, _: u16) { self.relative(self.status.carry()); }
+    fn bne(&mut self, _: u16) { self.relative(!self.status.zero()); }
+    fn beq(&mut self, _: u16) { self.relative(self.status.zero()); }
 
     fn jsr(&mut self, value: u16) { 
         let return_addr = self.pc - 1;
@@ -74,7 +68,6 @@ impl CPU {
         self.status.set_interrupt(true); 
         self.pc = self.read_address(IRQ_VECTOR);
     }
-
 
     fn add(&mut self, value: u8) {
         let carry = self.status.bits() & 0x1 == 1;
@@ -426,40 +419,38 @@ impl CPU {
         self.status.set_zn(self.x);
     }
 
-    pub const OPCODES: [(fn(&mut Self, u16) -> (), AddrMode) ; 0x100] = [
-        (Self::brk, Impl(0x07)), (Self::ora,  IndX(0x06)), (Self::jam,      None), (Self::slo,  IndX(0x08)), (Self::nop, Zp(0x03)), (Self::ora,  Zp(0x03)), (Self::asl, Zp(0x05)), (Self::slo,  Zp(0x05)), 
-        (Self::php, Impl(0x03)), (Self::ora,  Imm(0x02)), (Self::asl_a, Acc(0x02)), (Self::anc, Imm(0x02)), (Self::nop, Abs(0x04)), (Self::ora,  Abs(0x04)), (Self::asl, Abs(0x06)), (Self::slo,  Abs(0x06)),
-        (Self::bpl,  Rel(0x02)), (Self::ora, IndrY(0x05)), (Self::jam,      None), (Self::slo, IndrY(0x88)), (Self::nop, ZpX(0x04)), (Self::ora, ZpX(0x04)), (Self::asl, ZpX(0x06)), (Self::slo, ZpX(0x06)), 
-        (Self::clc, Impl(0x02)), (Self::ora, AbsY(0x04)), (Self::nop, Impl(0x02)), (Self::slo, AbsY(0x87)), (Self::nop, AbsX(0x04)), (Self::ora, AbsX(0x04)), (Self::asl, AbsX(0x87)), (Self::slo, AbsX(0x87)),
-        (Self::jsr,  Abs(0x06)), (Self::and,  IndX(0x06)), (Self::jam,      None), (Self::rla, IndX(0x08)), (Self::bit, Zp(0x03)), (Self::and, Zp(0x03)), (Self::rol, Zp(0x05)), (Self::rla,  Zp(0x05)), 
-        (Self::plp, Impl(0x04)), (Self::and,  Imm(0x02)), (Self::rol_a, Acc(0x02)), (Self::anc, Imm(0x02)), (Self::bit, Abs(0x04)), (Self::and, Abs(0x04)), (Self::rol, Abs(0x06)), (Self::rla,  Abs(0x06)),
-        (Self::bmi,  Rel(0x02)), (Self::and,  IndX(0x05)), (Self::jam,      None), (Self::rla, IndrY(0x88)), (Self::nop, ZpX(0x04)), (Self::and, ZpX(0x04)), (Self::rol, ZpX(0x06)), (Self::rla, ZpX(0x06)), 
-        (Self::sec, Impl(0x02)), (Self::and, AbsY(0x04)), (Self::nop, Impl(0x02)), (Self::rla, AbsY(0x87)), (Self::nop, AbsX(0x04)), (Self::and, AbsX(0x04)), (Self::rol, AbsX(0x87)), (Self::rla, AbsX(0x87)),
-        (Self::rti, Impl(0x06)), (Self::eor,  IndX(0x06)), (Self::jam,      None), (Self::sre, IndX(0x08)), (Self::nop, Zp(0x03)), (Self::eor, Zp(0x03)), (Self::lsr, Zp(0x05)), (Self::sre,  Zp(0x05)), 
-        (Self::pha, Impl(0x03)), (Self::eor,  Imm(0x02)), (Self::lsr_a, Acc(0x02)), (Self::alr, Imm(0x02)), (Self::jmp, Abs(0x03)), (Self::eor, Abs(0x03)), (Self::lsr, Abs(0x06)), (Self::sre,  Abs(0x06)),
-        (Self::bvc,  Rel(0x02)), (Self::eor, IndrY(0x05)), (Self::jam,      None), (Self::sre, IndrY(0x88)), (Self::nop, ZpX(0x04)), (Self::eor, ZpX(0x04)), (Self::lsr, ZpX(0x06)), (Self::sre, ZpX(0x06)), 
-        (Self::cli, Impl(0x02)), (Self::eor, AbsY(0x04)), (Self::nop, Impl(0x02)), (Self::sre, AbsY(0x87)), (Self::nop, AbsX(0x04)), (Self::eor, AbsX(0x04)), (Self::lsr, AbsX(0x87)), (Self::sre, AbsX(0x87)),
-        (Self::rts, Impl(0x06)), (Self::adc,  IndX(0x06)), (Self::jam,      None), (Self::rra, IndX(0x08)), (Self::nop, Zp(0x03)), (Self::adc, Zp(0x03)), (Self::ror, Zp(0x05)), (Self::rra,  Zp(0x05)), 
-        (Self::pla, Impl(0x04)), (Self::adc,  Imm(0x02)), (Self::ror_a, Acc(0x02)), (Self::arr, Imm(0x02)), (Self::jmp, Ind(0x05)), (Self::adc, Ind(0x05)), (Self::ror, Ind(0x06)), (Self::rra,  Ind(0x06)),
-        (Self::bvs,  Rel(0x02)), (Self::adc, IndrY(0x05)), (Self::jam,      None), (Self::rra, IndrY(0x88)), (Self::nop, ZpX(0x04)), (Self::adc, ZpX(0x04)), (Self::ror, ZpX(0x06)), (Self::rra, ZpX(0x06)), 
-        (Self::sei, Impl(0x02)), (Self::adc, AbsY(0x04)), (Self::nop, Impl(0x02)), (Self::rra, AbsY(0x87)), (Self::nop, AbsX(0x04)), (Self::adc, AbsX(0x04)), (Self::ror, AbsX(0x87)), (Self::rra, AbsX(0x87)),
-        (Self::nop,  Imm(0x02)), (Self::sta,  IndX(0x06)), (Self::nop, Imm(0x02)), (Self::sax, IndX(0x06)), (Self::sty, Zp(0x03)), (Self::sta, Zp(0x03)), (Self::stx, Zp(0x03)), (Self::sax,  Zp(0x03)), 
-        (Self::dey, Impl(0x02)), (Self::nop,  Imm(0x02)), (Self::txa, Impl(0x02)), (Self::nop, Imm(0x02)), (Self::sty,  Abs(0x04)), (Self::sta, Abs(0x84)), (Self::stx, Abs(0x04)), (Self::sax,  Abs(0x04)),
-        (Self::bcc,  Rel(0x02)), (Self::sta, IndrY(0x86)), (Self::jam,      None), (Self::nop, IndrY(0x86)), (Self::sty,ZpX(0x04)), (Self::sta, ZpX(0x04)), (Self::stx, ZpY(0x04)), (Self::sax, ZpY(0x04)), 
-        (Self::tya, Impl(0x02)), (Self::sta, AbsY(0x85)), (Self::txs, Impl(0x02)), (Self::nop, AbsY(0x85)), (Self::nop, AbsX(0x85)), (Self::sta, AbsX(0x85)), (Self::nop, AbsY(0x85)), (Self::nop, AbsY(0x85)),
-        (Self::ldy,  Imm(0x02)), (Self::lda,  IndX(0x06)), (Self::ldx, Imm(0x02)), (Self::lax, IndX(0x06)), (Self::ldy, Zp(0x03)), (Self::lda, Zp(0x03)), (Self::ldx, Zp(0x03)), (Self::lax,  Zp(0x03)), 
-        (Self::tay, Impl(0x02)), (Self::lda,  Imm(0x02)), (Self::tax, Impl(0x02)), (Self::nop, Imm(0x02)), (Self::ldy,  Abs(0x04)), (Self::lda, Abs(0x04)), (Self::ldx, Abs(0x04)), (Self::lax,  Abs(0x04)),
-        (Self::bcs,  Rel(0x02)), (Self::lda, IndrY(0x05)), (Self::jam,      None), (Self::lax, IndrY(0x05)), (Self::ldy,ZpX(0x04)), (Self::lda, ZpX(0x04)), (Self::ldx, ZpY(0x04)), (Self::lax, ZpY(0x04)), 
-        (Self::clv, Impl(0x02)), (Self::lda, AbsY(0x04)), (Self::tsx, Impl(0x02)), (Self::las, AbsY(0x04)), (Self::ldy, AbsX(0x04)), (Self::lda, AbsX(0x04)), (Self::ldx, AbsY(0x04)), (Self::lax, AbsY(0x04)),
-        (Self::cpy,  Imm(0x02)), (Self::cmp,  IndX(0x06)), (Self::nop, Imm(0x02)), (Self::dcp, IndX(0x08)), (Self::cpy, Zp(0x03)), (Self::cmp, Zp(0x03)), (Self::dec, Zp(0x05)), (Self::dcp,  Zp(0x05)), 
-        (Self::iny, Impl(0x02)), (Self::cmp,  Imm(0x02)), (Self::dex, Impl(0x02)), (Self::sbx, Imm(0x02)), (Self::cpy, Abs(0x04)), (Self::cmp, Abs(0x04)), (Self::dec, Abs(0x06)), (Self::dcp,  Abs(0x06)),
-        (Self::bne,  Rel(0x02)), (Self::cmp, IndrY(0x05)), (Self::jam,      None), (Self::dcp, IndrY(0x88)), (Self::nop, ZpX(0x04)), (Self::cmp, ZpX(0x04)), (Self::dec, ZpX(0x06)), (Self::dcp, ZpX(0x06)), 
-        (Self::cld, Impl(0x02)), (Self::cmp, AbsY(0x04)), (Self::nop, Impl(0x02)), (Self::dcp, AbsY(0x87)), (Self::nop, AbsX(0x04)), (Self::cmp, AbsX(0x04)), (Self::dec, AbsX(0x87)), (Self::dcp, AbsX(0x87)),
-        (Self::cpx,  Imm(0x02)), (Self::sbc,  IndX(0x06)), (Self::nop, Imm(0x02)), (Self::isc, IndX(0x08)), (Self::cpx,  Zp(0x03)), (Self::sbc, Zp(0x03)), (Self::inc, Zp(0x05)), (Self::isc,  Zp(0x05)), 
-        (Self::inx, Impl(0x02)), (Self::sbc,  Imm(0x02)), (Self::nop, Impl(0x02)), (Self::sbc, Imm(0x02)), (Self::cpx,  Abs(0x04)), (Self::sbc, Abs(0x04)), (Self::inc, Abs(0x06)), (Self::isc,  Abs(0x06)),
-        (Self::beq,  Rel(0x02)), (Self::sbc,  IndX(0x05)), (Self::jam,      None), (Self::isc, IndrY(0x88)), (Self::nop, ZpX(0x04)), (Self::sbc, ZpX(0x04)), (Self::inc, ZpX(0x06)), (Self::isc, ZpX(0x06)), 
-        (Self::sed, Impl(0x02)), (Self::sbc, AbsY(0x04)), (Self::nop, Impl(0x02)), (Self::isc, AbsY(0x87)), (Self::nop, AbsX(0x04)), (Self::sbc, AbsX(0x04)), (Self::inc, AbsX(0x87)), (Self::isc, AbsX(0x87)),
+    pub const OPCODES: [(fn(&mut CPU, u16) -> (), AddrMode) ; 0x100] = [
+        (CPU::brk, Impl(0x07)), (CPU::ora,  IndX(0x06)), (CPU::jam,        None), (CPU::slo,  IndX(0x08)), (CPU::nop,   Zp(0x03)), (CPU::ora,   Zp(0x03)), (CPU::asl,   Zp(0x05)), (CPU::slo,   Zp(0x05)), 
+        (CPU::php, Impl(0x03)), (CPU::ora,   Imm(0x02)), (CPU::asl_a, Acc(0x02)), (CPU::anc,   Imm(0x02)), (CPU::nop,  Abs(0x04)), (CPU::ora,  Abs(0x04)), (CPU::asl,  Abs(0x06)), (CPU::slo,  Abs(0x06)),
+        (CPU::bpl,  Rel(0x02)), (CPU::ora, IndrY(0x05)), (CPU::jam,        None), (CPU::slo, IndrY(0x88)), (CPU::nop,  ZpX(0x04)), (CPU::ora,  ZpX(0x04)), (CPU::asl,  ZpX(0x06)), (CPU::slo,  ZpX(0x06)), 
+        (CPU::clc, Impl(0x02)), (CPU::ora,  AbsY(0x04)), (CPU::nop,  Impl(0x02)), (CPU::slo,  AbsY(0x87)), (CPU::nop, AbsX(0x04)), (CPU::ora, AbsX(0x04)), (CPU::asl, AbsX(0x87)), (CPU::slo, AbsX(0x87)),
+        (CPU::jsr,  Abs(0x06)), (CPU::and,  IndX(0x06)), (CPU::jam,        None), (CPU::rla,  IndX(0x08)), (CPU::bit,   Zp(0x03)), (CPU::and,   Zp(0x03)), (CPU::rol,   Zp(0x05)), (CPU::rla,   Zp(0x05)), 
+        (CPU::plp, Impl(0x04)), (CPU::and,   Imm(0x02)), (CPU::rol_a, Acc(0x02)), (CPU::anc,   Imm(0x02)), (CPU::bit,  Abs(0x04)), (CPU::and,  Abs(0x04)), (CPU::rol,  Abs(0x06)), (CPU::rla,  Abs(0x06)),
+        (CPU::bmi,  Rel(0x02)), (CPU::and, IndrY(0x05)), (CPU::jam,        None), (CPU::rla, IndrY(0x88)), (CPU::nop,  ZpX(0x04)), (CPU::and,  ZpX(0x04)), (CPU::rol,  ZpX(0x06)), (CPU::rla,  ZpX(0x06)), 
+        (CPU::sec, Impl(0x02)), (CPU::and,  AbsY(0x04)), (CPU::nop,  Impl(0x02)), (CPU::rla,  AbsY(0x87)), (CPU::nop, AbsX(0x04)), (CPU::and, AbsX(0x04)), (CPU::rol, AbsX(0x87)), (CPU::rla, AbsX(0x87)),
+        (CPU::rti, Impl(0x06)), (CPU::eor,  IndX(0x06)), (CPU::jam,        None), (CPU::sre,  IndX(0x08)), (CPU::nop,   Zp(0x03)), (CPU::eor,   Zp(0x03)), (CPU::lsr,   Zp(0x05)), (CPU::sre,   Zp(0x05)), 
+        (CPU::pha, Impl(0x03)), (CPU::eor,   Imm(0x02)), (CPU::lsr_a, Acc(0x02)), (CPU::alr,   Imm(0x02)), (CPU::jmp,  Abs(0x03)), (CPU::eor,  Abs(0x04)), (CPU::lsr,  Abs(0x06)), (CPU::sre,  Abs(0x06)),
+        (CPU::bvc,  Rel(0x02)), (CPU::eor, IndrY(0x05)), (CPU::jam,        None), (CPU::sre, IndrY(0x88)), (CPU::nop,  ZpX(0x04)), (CPU::eor,  ZpX(0x04)), (CPU::lsr,  ZpX(0x06)), (CPU::sre,  ZpX(0x06)), 
+        (CPU::cli, Impl(0x02)), (CPU::eor,  AbsY(0x04)), (CPU::nop,  Impl(0x02)), (CPU::sre,  AbsY(0x87)), (CPU::nop, AbsX(0x04)), (CPU::eor, AbsX(0x04)), (CPU::lsr, AbsX(0x87)), (CPU::sre, AbsX(0x87)),
+        (CPU::rts, Impl(0x06)), (CPU::adc,  IndX(0x06)), (CPU::jam,        None), (CPU::rra,  IndX(0x08)), (CPU::nop,   Zp(0x03)), (CPU::adc,   Zp(0x03)), (CPU::ror,   Zp(0x05)), (CPU::rra,   Zp(0x05)), 
+        (CPU::pla, Impl(0x04)), (CPU::adc,   Imm(0x02)), (CPU::ror_a, Acc(0x02)), (CPU::arr,   Imm(0x02)), (CPU::jmp,  Ind(0x05)), (CPU::adc,  Abs(0x04)), (CPU::ror,  Abs(0x06)), (CPU::rra,  Ind(0x06)),
+        (CPU::bvs,  Rel(0x02)), (CPU::adc, IndrY(0x05)), (CPU::jam,        None), (CPU::rra, IndrY(0x88)), (CPU::nop,  ZpX(0x04)), (CPU::adc,  ZpX(0x04)), (CPU::ror,  ZpX(0x06)), (CPU::rra,  ZpX(0x06)), 
+        (CPU::sei, Impl(0x02)), (CPU::adc,  AbsY(0x04)), (CPU::nop,  Impl(0x02)), (CPU::rra,  AbsY(0x87)), (CPU::nop, AbsX(0x04)), (CPU::adc, AbsX(0x04)), (CPU::ror, AbsX(0x87)), (CPU::rra, AbsX(0x87)),
+        (CPU::nop,  Imm(0x02)), (CPU::sta,  IndX(0x06)), (CPU::nop,   Imm(0x02)), (CPU::sax,  IndX(0x06)), (CPU::sty,   Zp(0x03)), (CPU::sta,   Zp(0x03)), (CPU::stx,   Zp(0x03)), (CPU::sax,   Zp(0x03)), 
+        (CPU::dey, Impl(0x02)), (CPU::nop,   Imm(0x02)), (CPU::txa,  Impl(0x02)), (CPU::nop,   Imm(0x02)), (CPU::sty,  Abs(0x04)), (CPU::sta,  Abs(0x84)), (CPU::stx,  Abs(0x04)), (CPU::sax,  Abs(0x04)),
+        (CPU::bcc,  Rel(0x02)), (CPU::sta, IndrY(0x86)), (CPU::jam,        None), (CPU::nop, IndrY(0x86)), (CPU::sty,  ZpX(0x04)), (CPU::sta,  ZpX(0x04)), (CPU::stx,  ZpY(0x04)), (CPU::sax,  ZpY(0x04)), 
+        (CPU::tya, Impl(0x02)), (CPU::sta,  AbsY(0x85)), (CPU::txs,  Impl(0x02)), (CPU::nop,  AbsY(0x85)), (CPU::nop, AbsX(0x85)), (CPU::sta, AbsX(0x85)), (CPU::nop, AbsY(0x85)), (CPU::nop, AbsY(0x85)),
+        (CPU::ldy,  Imm(0x02)), (CPU::lda,  IndX(0x06)), (CPU::ldx,   Imm(0x02)), (CPU::lax,  IndX(0x06)), (CPU::ldy,   Zp(0x03)), (CPU::lda,   Zp(0x03)), (CPU::ldx,   Zp(0x03)), (CPU::lax,   Zp(0x03)), 
+        (CPU::tay, Impl(0x02)), (CPU::lda,   Imm(0x02)), (CPU::tax,  Impl(0x02)), (CPU::nop,   Imm(0x02)), (CPU::ldy,  Abs(0x04)), (CPU::lda,  Abs(0x04)), (CPU::ldx,  Abs(0x04)), (CPU::lax,  Abs(0x04)),
+        (CPU::bcs,  Rel(0x02)), (CPU::lda, IndrY(0x05)), (CPU::jam,        None), (CPU::lax, IndrY(0x05)), (CPU::ldy,  ZpX(0x04)), (CPU::lda,  ZpX(0x04)), (CPU::ldx,  ZpY(0x04)), (CPU::lax,  ZpY(0x04)), 
+        (CPU::clv, Impl(0x02)), (CPU::lda,  AbsY(0x04)), (CPU::tsx,  Impl(0x02)), (CPU::las,  AbsY(0x04)), (CPU::ldy, AbsX(0x04)), (CPU::lda, AbsX(0x04)), (CPU::ldx, AbsY(0x04)), (CPU::lax, AbsY(0x04)),
+        (CPU::cpy,  Imm(0x02)), (CPU::cmp,  IndX(0x06)), (CPU::nop,   Imm(0x02)), (CPU::dcp,  IndX(0x08)), (CPU::cpy,   Zp(0x03)), (CPU::cmp,   Zp(0x03)), (CPU::dec,   Zp(0x05)), (CPU::dcp,   Zp(0x05)), 
+        (CPU::iny, Impl(0x02)), (CPU::cmp,   Imm(0x02)), (CPU::dex,  Impl(0x02)), (CPU::sbx,   Imm(0x02)), (CPU::cpy,  Abs(0x04)), (CPU::cmp,  Abs(0x04)), (CPU::dec,  Abs(0x06)), (CPU::dcp,  Abs(0x06)),
+        (CPU::bne,  Rel(0x02)), (CPU::cmp, IndrY(0x05)), (CPU::jam,        None), (CPU::dcp, IndrY(0x88)), (CPU::nop,  ZpX(0x04)), (CPU::cmp,  ZpX(0x04)), (CPU::dec,  ZpX(0x06)), (CPU::dcp,  ZpX(0x06)), 
+        (CPU::cld, Impl(0x02)), (CPU::cmp,  AbsY(0x04)), (CPU::nop,  Impl(0x02)), (CPU::dcp,  AbsY(0x87)), (CPU::nop, AbsX(0x04)), (CPU::cmp, AbsX(0x04)), (CPU::dec, AbsX(0x87)), (CPU::dcp, AbsX(0x87)),
+        (CPU::cpx,  Imm(0x02)), (CPU::sbc,  IndX(0x06)), (CPU::nop,   Imm(0x02)), (CPU::isc,  IndX(0x08)), (CPU::cpx,   Zp(0x03)), (CPU::sbc,   Zp(0x03)), (CPU::inc,   Zp(0x05)), (CPU::isc,   Zp(0x05)), 
+        (CPU::inx, Impl(0x02)), (CPU::sbc,   Imm(0x02)), (CPU::nop,  Impl(0x02)), (CPU::sbc,   Imm(0x02)), (CPU::cpx,  Abs(0x04)), (CPU::sbc,  Abs(0x04)), (CPU::inc,  Abs(0x06)), (CPU::isc,  Abs(0x06)),
+        (CPU::beq,  Rel(0x02)), (CPU::sbc, IndrY(0x05)), (CPU::jam,        None), (CPU::isc, IndrY(0x88)), (CPU::nop,  ZpX(0x04)), (CPU::sbc,  ZpX(0x04)), (CPU::inc,  ZpX(0x06)), (CPU::isc,  ZpX(0x06)), 
+        (CPU::sed, Impl(0x02)), (CPU::sbc,  AbsY(0x04)), (CPU::nop,  Impl(0x02)), (CPU::isc,  AbsY(0x87)), (CPU::nop, AbsX(0x04)), (CPU::sbc, AbsX(0x04)), (CPU::inc, AbsX(0x87)), (CPU::isc, AbsX(0x87)),
     ];
 }
-
-

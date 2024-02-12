@@ -56,9 +56,9 @@ pub fn get_frame_pointer() -> *const u32 {
 
 #[wasm_bindgen]
 pub fn get_color(index: usize) -> u32 {
-    let pointer = EMULATOR.with_borrow_mut(|e| match e {
+    let color = EMULATOR.with_borrow_mut(|e| match e {
         Some(e) => e.get_color(index),
         None => { panic!("Emulator not initialized."); }
     });
-    pointer
+    color
 }

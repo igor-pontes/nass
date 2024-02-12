@@ -12,7 +12,7 @@ const RAM_SIZE: usize = 0x800;
 
 pub struct BUS {
     ram: [u8; RAM_SIZE],
-    mapper: Mapper_,
+    pub mapper: Mapper_,
     pub ppu: PPU,
     pub suspend: bool,
     pub interrupt: Option<Interrupt>,
@@ -20,13 +20,14 @@ pub struct BUS {
 
 impl BUS {
     pub fn new(mapper: Mapper_, ppu: PPU) -> Self {
-        BUS {
+        let bus = BUS {
             ram: [0; RAM_SIZE],
             mapper,
             ppu,
             suspend: false,
             interrupt: None,
-        }
+        };
+        bus
     }
 
     pub fn write(&mut self, addr: u16, value: u8) {

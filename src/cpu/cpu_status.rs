@@ -56,7 +56,23 @@ impl CPUStatus {
         self.set(CPUStatus::BREAK, condition);
     }
 
-    pub fn irq_disabled(&self) -> bool {
+    pub fn interrupt(&self) -> bool {
         self.intersects(CPUStatus::INTERRUPT_DISABLE)
+    }
+
+    pub fn negative(&self) -> bool {
+        self.intersects(CPUStatus::NEGATIVE)
+    }
+
+    pub fn overflow(&self) -> bool {
+        self.intersects(CPUStatus::OVERFLOW)
+    }
+
+    pub fn carry(&self) -> bool {
+        self.intersects(CPUStatus::CARRY)
+    }
+
+    pub fn zero(&self) -> bool {
+        self.intersects(CPUStatus::ZERO)
     }
 }

@@ -9,8 +9,8 @@ impl Frame {
 
     pub fn new() -> Frame {
         Frame { 
-            frame: [0xFF; 256*240], // 0x000000FF = Black
-            index: 0
+            frame: [0xFF; Frame::WIDTH*Frame::HEIGHT],
+            index: 0,
         }
     }
 

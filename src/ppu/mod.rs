@@ -53,7 +53,7 @@ impl PPU {
             line: Render(0),
             dot: 0,
             frame: Frame::new(),
-            even_frame: true,
+            even_frame: false,
             nmi_occured: false
         }
     }

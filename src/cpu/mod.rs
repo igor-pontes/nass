@@ -7,7 +7,8 @@ use cpu_status::*;
 use crate::cpu::instructions::*;
 
 // CPU is guaranteed to receive NMI every interrupt
-const CYCLES_PER_FRAME: usize = 29780;
+// const CYCLES_PER_FRAME: usize = 29780*4;
+const CYCLES_PER_FRAME: usize = 29780*4;
 
 pub struct CPU {
     a: u8, // Accumulator
@@ -17,6 +18,7 @@ pub struct CPU {
     s: u8, // Stack pointer (256-byte stack at $0100-$01FF.)
     status: CPUStatus,
     cycles_left: usize,
+    // cycles: usize,
     even_cycle: bool,
     pub bus: BUS,
 }
@@ -32,7 +34,8 @@ impl CPU {
             status: CPUStatus::new(),
             bus,
             cycles_left: 0,
-            even_cycle: true,
+            // cycles: 0,
+            even_cycle: false,
         }
     }
 
@@ -41,8 +44,10 @@ impl CPU {
         F: FnMut(&mut CPU),
     {
         for _ in 0..CYCLES_PER_FRAME {
-            self.tick();
-            self.bus.tick();
+            {
+                self.tick();
+                self.bus.tick();
+            }
         }
     }
 
@@ -52,6 +57,7 @@ impl CPU {
             if let Some(Interrupt::Nmi) = self.bus.interrupt { 
                 self.nmi();
                 self.bus.interrupt = None;
+                self.cycles_left -= 1;
                 return;
             }
             let op = self.bus.read(self.pc);
@@ -59,25 +65,24 @@ impl CPU {
             let (fun, addr_mode) = &CPU::OPCODES[op as usize];
             let addr = self.get_address_mode(addr_mode.clone()); 
             fun(self, addr);
-            if self.bus.suspend { 
+            if self.bus.suspend {
                 if self.even_cycle { 
                     self.cycles_left += 513; 
                 } else { 
-                    self.cycles_left += 514; 
+                 self.cycles_left += 514; 
                 }
                 self.bus.suspend = false;
             }
-
         }
         self.cycles_left -= 1;
     }
 
     pub fn reset(&mut self) {
+        self.cycles_left = 7;
         self.x = 0;
         self.y = 0;
         self.a = 0;
         self.s = 0xFD;
-        self.cycles_left = 7;
         self.status = CPUStatus::new();
         self.pc = self.read_address(RESET_VECTOR);
     }
@@ -170,12 +175,14 @@ impl CPU {
                 }
                 operand
             }
-            _ => 0
+            AddrMode::None => 0
         }
     }
 
     fn set_page_crossed(&mut self, a: u16, b: u16) {
-        if (a & 0xFF00) != (b & 0xFF00) { self.cycles_left += 1; }
+        if (a & 0xFF00) != (b & 0xFF00) { 
+            self.cycles_left += 1; 
+        }
     }
 
     fn push_stack(&mut self, val: u8) {
