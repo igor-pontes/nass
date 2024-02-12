@@ -1,6 +1,7 @@
 pub struct Frame {
     frame: [u32; Frame::WIDTH*Frame::HEIGHT],
     index: usize,
+    frames: u8
 }
 
 impl Frame {
@@ -11,6 +12,7 @@ impl Frame {
         Frame { 
             frame: [0xFF; Frame::WIDTH*Frame::HEIGHT],
             index: 0,
+            frames: 0
         }
     }
 
@@ -19,10 +21,15 @@ impl Frame {
         self.index += 1;
         if self.index == Frame::WIDTH * Frame::HEIGHT {
             self.index = 0;
+            self.frames += 1;
         }
     }
 
     pub fn get_pointer(&self) -> *const u32 {
         self.frame.as_ptr()
+    }
+
+    pub fn even_frame(&self) -> bool { 
+        self.frames & 1 == 0 
     }
 }

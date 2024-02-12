@@ -22,7 +22,7 @@ impl Line {
         match self {
             PreRender => {
                 if inc == 1 { return Render(0); }
-                if (*dot - 1) == 340 && rendering && !even_frame { return Render(0); }
+                if (*dot - 1) == 340 && rendering && even_frame { return Render(0); }
                 PreRender
             },
             Render(line) => {

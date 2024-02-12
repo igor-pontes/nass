@@ -32,7 +32,6 @@ pub struct PPU {
     line: Line,
     dot: usize,
     pub frame: Frame,
-    even_frame: bool,
     pub nmi_occured: bool
 }
 
@@ -53,19 +52,14 @@ impl PPU {
             line: Render(0),
             dot: 0,
             frame: Frame::new(),
-            even_frame: false,
             nmi_occured: false
         }
     }
 
-    pub fn tick(&mut self, mapper: &mut Mapper_) -> bool {
-        let mut vblank = false;
+    pub fn tick(&mut self, mapper: &mut Mapper_) {
         match self.line {
             PreRender => {
-                if self.dot == 1 { 
-                    self.even_frame = !self.even_frame;
-                    self.status.reset(); 
-                }
+                if self.dot == 1 { self.status.reset(); }
                 if self.mask.rendering() && self.dot > 0 {
                     if self.dot % 8 == 0 && self.dot <= 256 { self.addr.coarse_x_increment(); } 
                     if self.dot == 256 { self.addr.coarse_y_increment(); }
@@ -116,12 +110,10 @@ impl PPU {
                     if self.ctrl.generate_nmi() { 
                         self.nmi_occured = true; 
                     }
-                    vblank = true;
                 }
             },
         }
-        self.line = self.line.next(self.mask.rendering(), &mut self.dot, self.even_frame);
-        vblank
+        self.line = self.line.next(self.mask.rendering(), &mut self.dot, self.frame.even_frame());
     }
 
     pub fn write_to_scroll(&mut self, value: u8) {

@@ -25,8 +25,7 @@ impl PPUAddr {
 
     pub fn set_vertical(&mut self, t: u16) {
         // Y coarse
-        // let (y_high, y_low) = (((t & 0x7B00) >> 8) as u8, (t & 0x00E0) as u8);
-        let (y_high, y_low) = (((t & 0x3B00) >> 8) as u8, (t & 0x00E0) as u8);
+        let (y_high, y_low) = (((t & 0x7B00) >> 8) as u8, (t & 0x00E0) as u8);
         self.value.0 = (self.value.0 & !0x7B) | y_high; 
         self.value.1 = (self.value.1 & !0xE0) | y_low;
     }

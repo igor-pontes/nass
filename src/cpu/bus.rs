@@ -67,14 +67,13 @@ impl BUS {
         }
     }
 
-    pub fn tick(&mut self) {
-        for _ in 0..3 {
-            if self.ppu.tick(&mut self.mapper) { 
-                if self.ppu.nmi_occured {
-                    self.interrupt = Some(Nmi); 
-                    self.ppu.nmi_occured = false;
-                }
-            } 
+    pub fn tick(&mut self, cycles: usize) {
+        for _ in 0..(3*cycles) {
+            self.ppu.tick(&mut self.mapper);
+            if self.ppu.nmi_occured {
+                self.interrupt = Some(Nmi); 
+                self.ppu.nmi_occured = false;
+            }
         }
     }
 }

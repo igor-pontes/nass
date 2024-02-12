@@ -7,8 +7,7 @@ use cpu_status::*;
 use crate::cpu::instructions::*;
 
 // CPU is guaranteed to receive NMI every interrupt
-// const CYCLES_PER_FRAME: usize = 29780*4;
-const CYCLES_PER_FRAME: usize = 29780*4;
+const CYCLES_PER_FRAME: usize = 29780;
 
 pub struct CPU {
     a: u8, // Accumulator
@@ -18,8 +17,7 @@ pub struct CPU {
     s: u8, // Stack pointer (256-byte stack at $0100-$01FF.)
     status: CPUStatus,
     cycles_left: usize,
-    // cycles: usize,
-    even_cycle: bool,
+    cycles: usize,
     pub bus: BUS,
 }
 
@@ -34,8 +32,7 @@ impl CPU {
             status: CPUStatus::new(),
             bus,
             cycles_left: 0,
-            // cycles: 0,
-            even_cycle: false,
+            cycles: 0,
         }
     }
 
@@ -46,35 +43,32 @@ impl CPU {
         for _ in 0..CYCLES_PER_FRAME {
             {
                 self.tick();
-                self.bus.tick();
+                self.bus.tick(self.cycles_left);
             }
         }
     }
 
     fn tick(&mut self) {
-        self.even_cycle = !self.even_cycle;
-        if self.cycles_left == 0 {
-            if let Some(Interrupt::Nmi) = self.bus.interrupt { 
-                self.nmi();
-                self.bus.interrupt = None;
-                self.cycles_left -= 1;
-                return;
-            }
-            let op = self.bus.read(self.pc);
-            self.pc += 1;
-            let (fun, addr_mode) = &CPU::OPCODES[op as usize];
-            let addr = self.get_address_mode(addr_mode.clone()); 
-            fun(self, addr);
-            if self.bus.suspend {
-                if self.even_cycle { 
-                    self.cycles_left += 513; 
-                } else { 
-                 self.cycles_left += 514; 
-                }
-                self.bus.suspend = false;
-            }
+        self.cycles_left = 0;
+        if let Some(Interrupt::Nmi) = self.bus.interrupt { 
+            self.nmi();
+            self.bus.interrupt = None;
+            return;
         }
-        self.cycles_left -= 1;
+        let op = self.bus.read(self.pc);
+        self.pc += 1;
+        let (fun, addr_mode) = &CPU::OPCODES[op as usize];
+        let addr = self.get_address_mode(addr_mode.clone()); 
+        fun(self, addr);
+        if self.bus.suspend {
+            if self.cycles & 1 == 0 { 
+                self.cycles_left += 513; 
+            } else { 
+                self.cycles_left += 514; 
+            }
+            self.bus.suspend = false;
+        }
+        self.cycles += self.cycles_left;
     }
 
     pub fn reset(&mut self) {
