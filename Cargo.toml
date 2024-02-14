@@ -20,6 +20,7 @@ wasm-bindgen-test = "0.3.13"
 
 [features]
 default = ["console_error_panic_hook", "wee_alloc"]
+# default = ["wee_alloc"]
 
 [profile.release]
 # Tell `rustc` to optimize for small code size.

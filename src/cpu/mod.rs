@@ -53,20 +53,20 @@ impl CPU {
         if let Some(Interrupt::Nmi) = self.bus.interrupt { 
             self.nmi();
             self.bus.interrupt = None;
-            return;
-        }
-        let op = self.bus.read(self.pc);
-        self.pc += 1;
-        let (fun, addr_mode) = &CPU::OPCODES[op as usize];
-        let addr = self.get_address_mode(addr_mode.clone()); 
-        fun(self, addr);
-        if self.bus.suspend {
-            if self.cycles & 1 == 0 { 
-                self.cycles_left += 513; 
-            } else { 
-                self.cycles_left += 514; 
+        } else {
+            let op = self.bus.read(self.pc);
+            self.pc += 1;
+            let (fun, addr_mode) = &CPU::OPCODES[op as usize];
+            let addr = self.get_address_mode(addr_mode.clone()); 
+            fun(self, addr);
+            if self.bus.suspend {
+                if self.cycles & 1 == 0 { 
+                    self.cycles_left += 513; 
+                } else { 
+                    self.cycles_left += 514; 
+                }
+                self.bus.suspend = false;
             }
-            self.bus.suspend = false;
         }
         self.cycles += self.cycles_left;
     }

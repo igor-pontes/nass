@@ -1,7 +1,5 @@
 import init, { disassemble, step, get_frame_pointer, get_color } from "./pkg/nass.js";
 
-// https://en.wikipedia.org/wiki/List_of_video_game_console_palettes#Nintendo_Entertainment_System
-
 const PIXEL_SIZE = 2;
 const WIDTH = 256;
 const HEIGHT = 240;
@@ -28,7 +26,6 @@ const getRgba = (r, g, b, a) => `rgba(${r}, ${g}, ${b}, ${a})`;
 const drawCells = (pointer) => {
   for (let row = 0; row < HEIGHT; row++) {
     for (let col = 0; col < WIDTH; col++) {
-        ctx.fillStyle = getRgba(0, 0, 0, 0xFF);
         const offset = pointer + row * WIDTH*4 + col*4;
         const red = buffer[offset + 3];
         const green = buffer[offset + 2];
@@ -36,7 +33,6 @@ const drawCells = (pointer) => {
         const alpha = buffer[offset];
         ctx.fillStyle = getRgba(red, green, blue, alpha);
         ctx.fillRect(col * PIXEL_SIZE, row * PIXEL_SIZE, PIXEL_SIZE, PIXEL_SIZE);
-
     }
   }
 }

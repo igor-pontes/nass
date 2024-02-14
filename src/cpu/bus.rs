@@ -73,6 +73,7 @@ impl BUS {
             if self.ppu.nmi_occured {
                 self.interrupt = Some(Nmi); 
                 self.ppu.nmi_occured = false;
+                break;
             }
         }
     }
