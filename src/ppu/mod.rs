@@ -8,8 +8,8 @@ mod line;
 pub use colors::*;
 use line::{*, Line::*};
 use crate::frame::Frame;
-use crate::mapper::*;
 
+use crate::mapper::*;
 use self::{
     ppu_addr::PPUAddr,
     ppu_control::PPUControl,
@@ -119,7 +119,7 @@ impl PPU {
                                     let y = self.line.get() - y - 1;
                                     let x = self.dot - x;
                                     let fine_x = if flip_h { x } else { 7 - x };
-                                    let fine_y = if flip_v { height-1 - y } else { y } as u16;
+                                    let fine_y = if flip_v { height - 1 - y } else { y } as u16;
                                     let half_pattern_table = if self.ctrl.is_sprite_size_16() { bank } else { self.ctrl.get_sprite_pattern_addr()};
                                     let color_addr_0 = half_pattern_table | tile << 4 | 0 << 3 | fine_y;
                                     let color_addr_1 = half_pattern_table | tile << 4 | 1 << 3 | fine_y;
@@ -144,8 +144,8 @@ impl PPU {
                             let height = if self.ctrl.is_sprite_size_16() { 16 } else { 8 };
                             for n in (0..self.oam_data.len()).step_by(4) {
                                 let y = self.line.get() - self.oam_data[n] as usize;
-                                if y < height {
-                                    if self.sprites.1 < 8 {
+                                if y < height && 239 - self.line.get() > 0 {
+                                    if self.sprites.1 < 8{
                                         self.sprites.0[4*self.sprites.1] = self.oam_data[n];
                                         self.sprites.0[4*self.sprites.1 + 1] = self.oam_data[n + 1];
                                         self.sprites.0[4*self.sprites.1 + 2] = self.oam_data[n + 2];
