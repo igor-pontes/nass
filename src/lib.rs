@@ -4,13 +4,13 @@ mod ppu;
 mod cpu;
 mod mapper;
 mod frame;
-mod emulator;
+// mod emulator;
 
 use cfg_if::cfg_if;
 use js_sys::{ ArrayBuffer, Uint8Array };
 use { 
     std::cell::RefCell,
-    crate::emulator::*, 
+    crate::cpu::*, 
     wasm_bindgen::prelude::*, 
     js_sys
 };
@@ -27,20 +27,20 @@ pub fn set_panic_hook() {
     console_error_panic_hook::set_once();
 }
 
-thread_local!{ static EMULATOR: RefCell<Option<Emulator>> = RefCell::new(None) }
+thread_local!{ static EMULATOR: RefCell<Option<CPU>> = RefCell::new(None) }
 
 #[wasm_bindgen]
 pub fn disassemble(rom: ArrayBuffer) {
     set_panic_hook();
     let bytes = Uint8Array::new_with_byte_offset(&rom, 0).to_vec();
-    EMULATOR.set(Some(Emulator::new(bytes)));
+    EMULATOR.set(Some(CPU::new(bytes)));
     EMULATOR.with_borrow_mut(|e| e.as_mut().and_then(|e| Some(e.reset())));
 }
 
 #[wasm_bindgen]
 pub fn step() {
     EMULATOR.with_borrow_mut(|e| match e {
-        Some(e) => e.cpu.run_with_callback(|_| { }),
+        Some(e) => e.run_with_callback(|_| { }),
         None => { panic!("Emulator not initialized."); }
     });
 }

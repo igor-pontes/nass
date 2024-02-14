@@ -16,13 +16,12 @@ impl Line {
         }
     }
 
-    pub fn next(&mut self, rendering: bool, dot: &mut usize, even_frame: bool) {
+    pub fn next(&mut self, dot: &mut usize) {
         *dot += 1;
         let inc = if *dot == 341 { *dot = 0; 1 } else { 0 };
         match self {
             PreRender => {
                 if inc == 1 {  *self = Render(0); return; }
-                if (*dot - 1) == 340 && rendering && !even_frame { *self = Render(0); return; }
                 *self = PreRender;
             },
             Render(line) => {

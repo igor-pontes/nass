@@ -1,5 +1,5 @@
 use crate::mapper::*;
-use wasm_bindgen::prelude::*;
+// use wasm_bindgen::prelude::*;
 
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum Mirroring {
@@ -10,11 +10,11 @@ pub enum Mirroring {
     FourScreen
 }
 
-#[wasm_bindgen]
-extern {
-    #[wasm_bindgen(js_namespace = console)]
-    fn log(s: &str);
-}
+// #[wasm_bindgen]
+// extern {
+//     #[wasm_bindgen(js_namespace = console)]
+//     fn log(s: &str);
+// }
 
 pub fn new(bytes: Vec<u8>) -> Result<Mapper_, String> {
     if bytes[0] == 0x4E && bytes[1] == 0x45 && bytes[2] == 0x53 && bytes[3] == 0x1A {
@@ -46,7 +46,7 @@ pub fn new(bytes: Vec<u8>) -> Result<Mapper_, String> {
             Ok(mapper) => mapper,
             Err(str) => return Err(str)
         };
-        log(&format!("[{mapper}] PRG_ROM_BANKS: {prg_rom_banks} | CHR_ROM_BANKS: {chr_rom_banks}", ));
+        // log(&format!("[{mapper}] PRG_ROM_BANKS: {prg_rom_banks} | CHR_ROM_BANKS: {chr_rom_banks}", ));
 
         Ok(mapper)
     } else {

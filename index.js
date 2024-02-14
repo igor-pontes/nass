@@ -13,9 +13,9 @@ const ctx = canvas.getContext('2d');
 const PALETTE_SIZE = 12;
 const PALETTE_WIDTH = 16;
 const palette_canvas = document.getElementById("palette-canvas");
-palette_canvas.width = 16*PALETTE_SIZE;
 palette_canvas.height = 2*PALETTE_SIZE;
 const pctx = palette_canvas.getContext('2d');
+palette_canvas.width = 16*PALETTE_SIZE;
 
 let buffer = new Uint8Array();
 

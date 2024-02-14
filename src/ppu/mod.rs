@@ -29,7 +29,7 @@ pub struct PPU {
     pub mask: PPUMask,
     status: PPUStatus,
     internal_data_buff: u8,
-    fine_x: u8,
+    // fine_x: u8,
     line: Line,
     dot: usize,
     pub frame: Frame,
@@ -50,7 +50,7 @@ impl PPU {
             mask: PPUMask::new(),
             status: PPUStatus::new(),
             internal_data_buff: 0,
-            fine_x: 0,
+            // fine_x: 0,
             line: Render(0),
             dot: 0,
             frame: Frame::new(),
@@ -72,13 +72,10 @@ impl PPU {
             Render(_) => {
                 if self.dot > 0 {
                     if self.dot <= 256 {
-                        // let mut bg_color = 0;
-                        // let mut sprt_color = 0;
                         let mut color = 0;
-                        let mut priority = false;
                         if self.mask.show_background() && (self.dot > 8 || self.mask.show_background_leftmost()) {
                             let v = self.addr.get();
-                            let fine_x = 8 - (self.fine_x + ((self.dot as u8) % 8));
+                            let fine_x = 8 - (self.dot as u8) % 8;
                             let fine_y = (v & 0x7000) >> 12;
 
                             let tile_addr = 0x2000 | (v & 0x0FFF);
@@ -98,11 +95,9 @@ impl PPU {
                             let quadrant = (tile_row & 0x2) + ((tile_column & 0x2) >> 1);
                             let offset = quadrant * 2;
                             let attr_color = (attr_data >> offset) & 0x03;
-                            // if color_tile > 0 { bg_color = (attr_color << 2 | color_tile) as usize; }
-                            color = (attr_color << 2 | color_tile) as usize;
+                            if color_tile > 0 { color = (attr_color << 2 | color_tile) as usize; }
                         }
                         
-                        // if self.mask.show_sprite() && (self.dot > 8 || self.mask.show_sprite_leftmost()) {
                         if self.mask.show_sprite() && (self.dot > 8 || self.mask.show_sprite_leftmost()) {
                             for sprite in 0..self.sprites.1 {
                                 let x = self.sprites.0[4*sprite + 3] as usize;
@@ -110,8 +105,8 @@ impl PPU {
                                     let y = self.sprites.0[4*sprite] as usize;
                                     let tile = self.sprites.0[4*sprite + 1] as u16;
                                     let attr = self.sprites.0[4*sprite + 2];
-                                    let bank = (tile & 0x01) << 12;
-                                    priority = attr & 0x20 == 0;
+                                    let bank = (tile & 0x1) << 12;
+                                    let priority = attr & 0x2 == 0;
                                     let palette = attr & 0x03;
                                     let flip_h = attr & 0x40 > 0;
                                     let flip_v = attr & 0x80 > 0;
@@ -120,19 +115,26 @@ impl PPU {
                                     let x = self.dot - x;
                                     let fine_x = if flip_h { x } else { 7 - x };
                                     let fine_y = if flip_v { height - 1 - y } else { y } as u16;
+                                    let offset = y.div_euclid(8) as u16;
                                     let half_pattern_table = if self.ctrl.is_sprite_size_16() { bank } else { self.ctrl.get_sprite_pattern_addr()};
                                     let color_addr_0 = half_pattern_table | tile << 4 | 0 << 3 | fine_y;
-                                    let color_addr_1 = half_pattern_table | tile << 4 | 1 << 3 | fine_y;
                                     let color_bit_0 = ( mapper.read_chr(color_addr_0) >> fine_x) & 0x1;
+                                    let color_addr_1 = half_pattern_table | tile + offset << 4 | 1 << 3 | fine_y;
                                     let color_bit_1 = ( mapper.read_chr(color_addr_1) >> fine_x) & 0x1;
                                     let color_tile = (color_bit_1 << 1) | color_bit_0;
 
-                                    if color_tile > 0 { color = (0x10 | palette << 2 | color_tile) as usize }; 
+                                    if color_tile > 0 { 
+                                        if priority || color == 0 { 
+                                            if !self.status.sprite_hit() && self.mask.show_background() { self.status.set_sprite_hit(true); }
+                                            color = (0x10 | palette << 2 | color_tile) as usize 
+                                        } 
+                                    }
                                 }
                             }
                         }
-                        let color = self.palette_table[color as usize];
-                        self.frame.set_pixel(COLORS[color as usize]);
+                        if self.mask.rendering() {
+                            self.frame.set_pixel(COLORS[self.palette_table[color] as usize]);
+                        }
                     }
 
                     if self.mask.rendering() {
@@ -143,8 +145,8 @@ impl PPU {
                             self.sprites = ([0; 0x20], 0);
                             let height = if self.ctrl.is_sprite_size_16() { 16 } else { 8 };
                             for n in (0..self.oam_data.len()).step_by(4) {
-                                let y = self.line.get() - self.oam_data[n] as usize;
-                                if y < height && 239 - self.line.get() > 0 {
+                                let y = self.oam_data[n] as usize;
+                                if (self.line.get() - y) < height && (239 - y) >= height {
                                     if self.sprites.1 < 8{
                                         self.sprites.0[4*self.sprites.1] = self.oam_data[n];
                                         self.sprites.0[4*self.sprites.1 + 1] = self.oam_data[n + 1];
@@ -170,12 +172,12 @@ impl PPU {
                 }
             },
         }
-        self.line.next(self.mask.rendering(), &mut self.dot, self.frame.even_frame());
+        self.line.next(&mut self.dot);
     }
 
     pub fn write_to_scroll(&mut self, value: u8) {
         if !self.addr.latch() {
-            self.fine_x = value & 0x7;
+            // self.fine_x = value & 0x7;
             let value = value >> 3;
             self.temp = (self.temp & 0xFFE0) | (value as u16);
         } else {
