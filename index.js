@@ -9,7 +9,7 @@ const imports = {
 };
 
 let buffer = new Uint8Array();
-let wasm = { running: false };
+let wasm = {};
 let running = false;
 
 WebAssembly.instantiateStreaming(fetch('target/wasm32-unknown-unknown/release/nass.wasm'), imports).then(obj => { wasm = obj.instance.exports; });
