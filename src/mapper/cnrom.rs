@@ -1,19 +1,20 @@
 use std::fmt;
-use super::Mapper;
-pub use super::cartridge::*;
+use super::*;
 
 pub struct CNROM {
-    prg_rom: Vec<u8>, 
-    chr_rom: Vec<u8>,
     chr_bank: u16,
     mirroring: Mirroring,
+    prg_offset: usize,
+    prg_len: usize,
+    chr_offset: usize,
 }
 
 impl CNROM {
-    pub fn new(prg_rom: Vec<u8>, chr_rom: Vec<u8>, mirroring: Mirroring) -> Self { 
+    pub fn new(prg_len: usize, _: usize, prg_offset: usize, chr_offset: usize,  mirroring: Mirroring) -> Self { 
         CNROM {
-            prg_rom,
-            chr_rom,
+            prg_offset,
+            prg_len,
+            chr_offset,
             chr_bank: 0,
             mirroring,
         } 
@@ -29,19 +30,19 @@ impl fmt::Display for CNROM {
 impl Mapper for CNROM {
     fn get_mirroring(&self) -> Mirroring { self.mirroring }
 
-    fn read_chr(&self, addr: u16) -> u8 { 
+    fn read_chr(&self, rom: *const u8, addr: u16) -> u8 { 
         let addr = (addr + self.chr_bank) as usize;
-        self.chr_rom[addr] 
+        unsafe { *(rom.wrapping_add(self.chr_offset + (addr as usize))) } 
     }
 
-    fn read_prg(&self, addr: u16) -> u8 { 
+    fn read_prg(&self, rom: *const u8, addr: u16) -> u8 { 
         match addr {
             0x8000..=0xFFFF => {
                 let mut addr = addr - 0x8000;
-                if self.prg_rom.len() == 0x4000 && addr >= 0x4000 { 
+                if self.prg_len == 0x4000 && addr >= 0x4000 { 
                     addr = addr % 0x4000; 
                 }
-                self.prg_rom[addr as usize]
+                unsafe { *(rom.wrapping_add(self.prg_offset + (addr as usize))) } 
             },
             _ => 0
         }
@@ -56,6 +57,5 @@ impl Mapper for CNROM {
         }
     }
 
-    fn write_chr(&mut self, _addr: u16, _val: u8) { 
-    }
+    fn write_chr(&mut self, _: u16, _: u8) {}
 }

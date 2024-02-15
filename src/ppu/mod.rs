@@ -58,7 +58,7 @@ impl PPU {
         }
     }
 
-    pub fn tick(&mut self, mapper: &mut Mapper_) {
+    pub fn tick(&mut self, rom: *const u8, mapper: &mut Mapper_) {
         match self.line {
             PreRender => {
                 if self.dot == 1 { self.status.reset(); }
@@ -86,8 +86,8 @@ impl PPU {
                             let half_pattern_table = self.ctrl.get_background_pattern_addr();
                             let color_addr_1 = half_pattern_table | (tile as u16) << 4 | 1 << 3 | fine_y;
                             let color_addr_0 = half_pattern_table | (tile as u16) << 4 | 0 << 3 | fine_y;
-                            let color_bit_0 = ( mapper.read_chr(color_addr_0) >> fine_x) & 0x1;
-                            let color_bit_1 = ( mapper.read_chr(color_addr_1) >> fine_x) & 0x1;
+                            let color_bit_0 = ( mapper.read_chr(rom, color_addr_0) >> fine_x) & 0x1;
+                            let color_bit_1 = ( mapper.read_chr(rom, color_addr_1) >> fine_x) & 0x1;
                             let color_tile = (color_bit_1 << 1) | color_bit_0;
 
                             let tile_column = (v & 0x001f) as u8;
@@ -118,9 +118,9 @@ impl PPU {
                                     let offset = y.div_euclid(8) as u16;
                                     let half_pattern_table = if self.ctrl.is_sprite_size_16() { bank } else { self.ctrl.get_sprite_pattern_addr()};
                                     let color_addr_0 = half_pattern_table | tile << 4 | 0 << 3 | fine_y;
-                                    let color_bit_0 = ( mapper.read_chr(color_addr_0) >> fine_x) & 0x1;
+                                    let color_bit_0 = ( mapper.read_chr(rom, color_addr_0) >> fine_x) & 0x1;
                                     let color_addr_1 = half_pattern_table | tile + offset << 4 | 1 << 3 | fine_y;
-                                    let color_bit_1 = ( mapper.read_chr(color_addr_1) >> fine_x) & 0x1;
+                                    let color_bit_1 = ( mapper.read_chr(rom, color_addr_1) >> fine_x) & 0x1;
                                     let color_tile = (color_bit_1 << 1) | color_bit_0;
 
                                     if color_tile > 0 { 
@@ -132,9 +132,7 @@ impl PPU {
                                 }
                             }
                         }
-                        if self.mask.rendering() {
-                            self.frame.set_pixel(COLORS[self.palette_table[color] as usize]);
-                        }
+                        self.frame.set_pixel(COLORS[self.palette_table[color] as usize]);
                     }
 
                     if self.mask.rendering() {
@@ -239,13 +237,13 @@ impl PPU {
         }
     }
 
-    pub fn read_data(&mut self, mapper: &Mapper_) -> u8 {
+    pub fn read_data(&mut self, rom: *const u8, mapper: &Mapper_) -> u8 {
         let addr = self.addr.get() & 0x3FFF;
         self.increment_vram_addr();
         match addr {
             0..=0x1FFF => {
                 let result = self.internal_data_buff;
-                self.internal_data_buff = mapper.read_chr(addr);
+                self.internal_data_buff = mapper.read_chr(rom, addr);
                 result
             },
             0x2000..=0x2FFF => {

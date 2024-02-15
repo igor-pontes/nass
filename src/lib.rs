@@ -2,17 +2,14 @@
 
 mod ppu;
 mod cpu;
+mod emulator;
 mod mapper;
 mod frame;
-// mod emulator;
 
-use cfg_if::cfg_if;
-use js_sys::{ ArrayBuffer, Uint8Array };
 use { 
+    cfg_if::cfg_if,
     std::cell::RefCell,
-    crate::cpu::*, 
-    wasm_bindgen::prelude::*, 
-    js_sys
+    crate::emulator::Emulator,
 };
 
 cfg_if! {
@@ -22,43 +19,44 @@ cfg_if! {
     }
 }
 
-pub fn set_panic_hook() {
-    #[cfg(feature = "console_error_panic_hook")]
-    console_error_panic_hook::set_once();
+thread_local!{ static EMULATOR: RefCell<Emulator> = RefCell::new(Emulator::new()) }
+
+#[no_mangle]
+pub fn set_rom_length(value: usize) {
+    EMULATOR.with_borrow_mut(|e| e.set_len(value))
 }
 
-thread_local!{ static EMULATOR: RefCell<Option<CPU>> = RefCell::new(None) }
-
-#[wasm_bindgen]
-pub fn disassemble(rom: ArrayBuffer) {
-    set_panic_hook();
-    let bytes = Uint8Array::new_with_byte_offset(&rom, 0).to_vec();
-    EMULATOR.set(Some(CPU::new(bytes)));
-    EMULATOR.with_borrow_mut(|e| e.as_mut().and_then(|e| Some(e.reset())));
+#[no_mangle]
+pub fn disassemble() {
+    EMULATOR.with_borrow_mut(|e| e.disassemble());
 }
 
-#[wasm_bindgen]
+#[no_mangle]
+pub fn reset() {
+    EMULATOR.with_borrow_mut(|e| e.reset());
+}
+
+#[no_mangle]
 pub fn step() {
-    EMULATOR.with_borrow_mut(|e| match e {
-        Some(e) => e.run_with_callback(|_| { }),
-        None => { panic!("Emulator not initialized."); }
-    });
+    EMULATOR.with_borrow_mut(|e| e.step());
 }
 
-#[wasm_bindgen]
+#[no_mangle]
+pub fn set_button(value: u8) {
+    EMULATOR.with_borrow_mut(|e| e.set_button(value));
+}
+
+#[no_mangle]
 pub fn get_frame_pointer() -> *const u32 {
-    let pointer = EMULATOR.with_borrow_mut(|e| match e {
-        Some(e) => e.get_frame_pointer(),
-        None => { panic!("Emulator not initialized."); }
-    });
-    pointer
+    EMULATOR.with_borrow_mut(|e| e.get_frame_pointer())
 }
 
-#[wasm_bindgen]
+#[no_mangle]
+pub fn get_rom_pointer() -> *const u8 {
+    EMULATOR.with_borrow_mut(|e| e.get_rom_pointer())
+}
+
+#[no_mangle]
 pub fn get_color(index: usize) -> u32 {
-    let color = EMULATOR.with_borrow_mut(|e| match e {
-        Some(e) => e.get_color(index),
-        None => { panic!("Emulator not initialized."); }
-    });
-    color
+    EMULATOR.with_borrow_mut(|e| e.get_color(index))
 }

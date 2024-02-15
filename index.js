@@ -1,9 +1,17 @@
-import init, { disassemble, step, get_frame_pointer, get_color } from "./pkg/nass.js";
-
 const PIXEL_SIZE = 2;
 const WIDTH = 256;
 const HEIGHT = 240;
-const wasm = await init();
+
+const imports = { 
+  imports: { 
+    log: (arg) => console.log(arg),
+  } 
+};
+
+let buffer = new Uint8Array();
+let wasm = {};
+
+WebAssembly.instantiateStreaming(fetch('target/wasm32-unknown-unknown/release/nass.wasm'), imports).then(obj => { wasm = obj.instance.exports; });
 
 const canvas = document.getElementById("nass-canvas");
 canvas.width = WIDTH*2;
@@ -16,8 +24,6 @@ const palette_canvas = document.getElementById("palette-canvas");
 palette_canvas.height = 2*PALETTE_SIZE;
 const pctx = palette_canvas.getContext('2d');
 palette_canvas.width = 16*PALETTE_SIZE;
-
-let buffer = new Uint8Array();
 
 document.getElementById("rom-input").onchange = getFile;
 
@@ -63,18 +69,61 @@ function getFile() {
       reader.readAsArrayBuffer(file);
     })
   }
-  loadFile(file).then(rom => { 
-    disassemble(rom);
+  loadFile(file).then(rom_buffer => { 
+    const rom = new Uint8Array(rom_buffer);
+    wasm.set_rom_length(rom.length);
+    buffer = new Uint8Array(wasm.memory.buffer);
+    buffer.set(rom, wasm.get_rom_pointer())
+    wasm.disassemble();
+    wasm.reset();
     buffer = new Uint8Array(wasm.memory.buffer);
     const fn = () => {
-      drawCells(get_frame_pointer());
-      drawPalettes(get_color);
-      step();
+      drawCells(wasm.get_frame_pointer());
+      drawPalettes(wasm.get_color);
+      wasm.step();
       requestAnimationFrame(fn); 
     }
     requestAnimationFrame(fn);
   })
 }
+
+// Handle inputs
+addEventListener(
+  "keydown",
+  (event) => {
+    if (event.defaultPrevented) { return; }
+    switch (event.key) {
+      case "ArrowDown":
+        wasm.set_button(0b00100000);
+        break;
+      case "ArrowUp":
+        wasm.set_button(0b00010000);
+        break;               
+      case "ArrowLeft":      
+        wasm.set_button(0b01000000);
+        break;               
+      case "ArrowRight":     
+        wasm.set_button(0b10000000);
+        break;               
+      case "Backspace":          
+        wasm.set_button(0b00000100);
+        break;
+      case ".":          
+        wasm.set_button(0b00000001);
+        break;
+      case ",":
+        wasm.set_button(0b00000010);
+        break;
+      case "Escape":
+        wasm.set_button(0b00001000);
+        break;
+      default:
+        return;
+    }
+    event.preventDefault();
+  },
+  true,
+);
 
 drawCells(0);
 drawPalettes(() => 0xFF);

@@ -11,10 +11,14 @@ in
 pkgs.mkShell {
     buildInputs = with pkgs;[
       rustup
-      wasm-bindgen-cli
-      wasm-pack
+      # cargo
+      # rustc
+      # wasm-bindgen-cli
+      # wasm-pack
+      binaryen
     ];
     RUST_BACKTRACE = 1;
     
-    shellHook = "alias compile='wasm-pack build --target web'";
+    # shellHook = "alias compile='wasm-pack build --target web'";
+    shellHook = "alias compile='cargo build --target wasm32-unknown-unknown --release'";
 }

@@ -37,9 +37,11 @@ pub struct MMC1 {
     prg_ram_addr: usize,
     prg_area: usize,
     prg_ram: [u8; 0x8000],
-    prg_rom: Vec<u8>, 
     chr_ram: [u8; 0x20000], // 128KB (2**10 * 128)
-    chr_rom: Vec<u8>, 
+    prg_offset: usize, 
+    prg_rom_len: usize, 
+    chr_offset: usize, 
+    chr_rom_len: usize, 
     mirroring: Mirroring
 }
 
@@ -50,9 +52,9 @@ impl fmt::Display for MMC1 {
 }
 
 impl MMC1 {
-    pub fn new(prg_rom: Vec<u8>, chr_rom: Vec<u8>, mirroring: Mirroring) -> Self {
+    pub fn new(prg_rom_len: usize, chr_rom_len: usize, prg_offset: usize, chr_offset: usize, mirroring: Mirroring) -> Self { 
         // (No CHR_ROM) or (CHR_ROM == 8) => Using 8KB variant
-        let is_rom = chr_rom.len() != 0;
+        let is_rom = chr_rom_len != 0;
         let chr_addr = if is_rom { Rom(0, None) } else { Ram(0, None) };
         MMC1 {
             sr: 0x10,
@@ -64,9 +66,11 @@ impl MMC1 {
             prg_area: 0,
             mirroring,
             prg_ram: [0; 0x8000],
-            prg_rom,
             chr_ram: [0; 0x20000], 
-            chr_rom,
+            prg_offset,
+            prg_rom_len, 
+            chr_offset,
+            chr_rom_len, 
         } 
     }
 
@@ -113,14 +117,14 @@ impl MMC1 {
                 }
                 match (value & 0x10) >> 4 {
                     0 => self.chr_addr = {
-                        if self.chr_rom.len() != 0 {
+                        if self.chr_rom_len != 0 {
                             Rom(0, None)
                         } else {
                             Ram(0, None)
                         }
                     },
                     1 => self.chr_addr = {
-                        if self.chr_rom.len() != 0 {
+                        if self.chr_rom_len != 0 {
                             Rom(0, Some(0x1000))
                         } else {
                             Ram(0, Some(0x1000))
@@ -215,20 +219,20 @@ impl MMC1 {
 impl Mapper for MMC1 {
     fn get_mirroring(&self) -> Mirroring { self.mirroring }
 
-    fn read_prg(&self, addr: u16) -> u8 { 
+    fn read_prg(&self, rom: *const u8, addr: u16) -> u8 { 
         if addr < 0x6000 { return 0 }
         if (0x6000..=0x7FFF).contains(&addr) { return self.prg_ram[(addr -  0x6000) as usize + self.prg_ram_addr + self.prg_area] }
         let mut addr = addr as usize - 0x8000;
-        let rom_len = self.prg_rom.len();
-        if rom_len == 0x4000 && addr >= 0x4000 { return self.prg_rom[addr % 0x4000] }
+        if self.prg_rom_len == 0x4000 && addr >= 0x4000 { return unsafe { *(rom.wrapping_add(self.prg_offset + addr % 0x4000)) } }
+
         match self.prg_rom_addr {
             (_, Switch(x)) if addr >= 0x4000 => addr = addr - PRG_BANK_SIZE_16 + x + self.prg_area,
-            (_, Fixed) if addr >= 0x4000 => addr += rom_len - 2*PRG_BANK_SIZE_16 + self.prg_area,
+            (_, Fixed) if addr >= 0x4000 => addr += self.prg_rom_len - 2*PRG_BANK_SIZE_16 + self.prg_area,
             (Switch(x), _) => addr += x + self.prg_area,
             (Fixed,     _) => addr += self.prg_area,
             _  => panic!("MMC1: (Null, Null)")
         }
-        self.prg_rom[addr]
+        unsafe { *(rom.wrapping_add(self.prg_offset + addr)) }
     }
 
     fn write_prg(&mut self, addr: u16, val: u8) { 
@@ -239,12 +243,12 @@ impl Mapper for MMC1 {
         }
     }
 
-    fn read_chr(&self, addr: u16) -> u8 {
+    fn read_chr(&self, rom: *const u8, addr: u16) -> u8 {
         match self.chr_addr {
             Ram(_, Some(x)) if addr >= 0x1000 => self.chr_ram[addr as usize + x - CHR_BANK_SIZE_4],
-            Rom(_, Some(x)) if addr >= 0x1000 => self.chr_rom[addr as usize + x - CHR_BANK_SIZE_4],
+            Rom(_, Some(x)) if addr >= 0x1000 => unsafe { *(rom.wrapping_add(self.chr_offset + addr as usize + x - CHR_BANK_SIZE_4)) },
             Ram(x, _) => self.chr_ram[addr as usize + x],
-            Rom(x, _) => self.chr_rom[addr as usize + x],
+            Rom(x, _) => unsafe { *(rom.wrapping_add(self.chr_offset + addr as usize + x)) },
         }
     }
 

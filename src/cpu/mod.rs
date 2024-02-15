@@ -1,9 +1,10 @@
 mod bus;
 mod instructions;
 mod cpu_status;
+mod joypad;
 
 pub use self::bus::*;
-use crate::mapper::new;
+use crate::mapper::*;
 use crate::ppu::*;
 use cpu_status::*;
 use crate::cpu::instructions::*;
@@ -24,11 +25,7 @@ pub struct CPU {
 }
 
 impl CPU {
-    pub fn new(rom: Vec<u8>) -> Self {
-        let mapper = match new(rom) { 
-            Ok(m) => m, 
-            Err(str) => { panic!("{str}"); }
-        };
+    pub fn new(rom: *const u8, mapper: Mapper_) -> Self {
         CPU {
             a: 0,
             x: 0,
@@ -36,23 +33,16 @@ impl CPU {
             pc: 0,
             s: 0xFD,
             status: CPUStatus::new(),
-            // bus,
-            bus: BUS::new(mapper, PPU::new()),
+            bus: BUS::new(rom, mapper, PPU::new()),
             cycles_left: 0,
             cycles: 0,
         }
     }
 
-    pub fn run_with_callback<F>(&mut self, mut callback: F)
-    where 
-        F: FnMut(&mut CPU),
-    {
-        for _ in 0..CYCLES_PER_FRAME {
-            callback(self);
-            {
-                self.tick();
-                self.bus.tick(self.cycles_left);
-            }
+    pub fn run(&mut self) {
+        for _ in 0..CYCLES_PER_FRAME { 
+            self.tick();
+            self.bus.tick(self.cycles_left);
         }
     }
 
@@ -87,14 +77,6 @@ impl CPU {
         self.s = 0xFD;
         self.status = CPUStatus::new();
         self.pc = self.read_address(RESET_VECTOR);
-    }
-
-    pub fn get_frame_pointer(&self) -> *const u32 {
-        self.bus.ppu.frame.get_pointer()
-    }
-
-    pub fn get_color(&self, index: usize) -> u32 {
-        COLORS[self.bus.ppu.palette_table[index] as usize]
     }
 
     fn nmi(&mut self) {
