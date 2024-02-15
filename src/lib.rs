@@ -42,8 +42,8 @@ pub fn step() {
 }
 
 #[no_mangle]
-pub fn set_button(value: u8) {
-    EMULATOR.with_borrow_mut(|e| e.set_button(value));
+pub fn toggle_button(value: u8) {
+    EMULATOR.with_borrow_mut(|e| e.toggle_button(value))
 }
 
 #[no_mangle]

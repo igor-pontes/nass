@@ -36,11 +36,11 @@ impl Emulator {
         self.rom.as_ptr()
     }
 
-    pub fn set_button(&mut self, value: u8) {
+    pub fn toggle_button(&mut self, value: u8) {
         match self.cpu.as_mut() {
             Some(cpu) => cpu.bus.joypad.set_button(value),
             None => { panic!("Emulator not initialized."); }
-        };
+        }
     }
 
     pub fn reset(&mut self) {

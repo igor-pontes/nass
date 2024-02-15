@@ -1,5 +1,5 @@
 use crate::ppu::PPU;
-use crate::cpu::joypad::Joypad;
+pub use crate::cpu::joypad::*;
 use crate::mapper::*;
 use Interrupt::*;
 

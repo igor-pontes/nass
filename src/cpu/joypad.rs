@@ -16,7 +16,7 @@ bitflags! {
 pub struct Joypad {
    strobe: bool,
    button_index: u8,
-   button_status: JoypadButton,
+   pub button_status: JoypadButton,
 }
 
 impl Joypad {
@@ -36,7 +36,7 @@ impl Joypad {
     }
 
     pub fn set_button(&mut self, value: u8) {
-        self.button_status.set(JoypadButton::from_bits_retain(value), true);
+        self.button_status.toggle(JoypadButton::from_bits_truncate(value));
     }
 
     pub fn read(&mut self) -> u8 {

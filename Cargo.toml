@@ -18,6 +18,5 @@ target = "wasm32-unknown-unknown"
 default = ["wee_alloc"]
 
 [profile.release]
-# Tell `rustc` to optimize for small code size.
-# opt-level = "z"
-# lto = true
+opt-level = "s"
+lto = true

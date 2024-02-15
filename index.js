@@ -9,7 +9,8 @@ const imports = {
 };
 
 let buffer = new Uint8Array();
-let wasm = {};
+let wasm = { running: false };
+let running = false;
 
 WebAssembly.instantiateStreaming(fetch('target/wasm32-unknown-unknown/release/nass.wasm'), imports).then(obj => { wasm = obj.instance.exports; });
 
@@ -77,6 +78,7 @@ function getFile() {
     wasm.disassemble();
     wasm.reset();
     buffer = new Uint8Array(wasm.memory.buffer);
+    running = true;
     const fn = () => {
       drawCells(wasm.get_frame_pointer());
       drawPalettes(wasm.get_color);
@@ -87,43 +89,38 @@ function getFile() {
   })
 }
 
-// Handle inputs
-addEventListener(
-  "keydown",
-  (event) => {
-    if (event.defaultPrevented) { return; }
-    switch (event.key) {
+const getButton = (key) => {
+    switch (key) {
       case "ArrowDown":
-        wasm.set_button(0b00100000);
-        break;
+        return 0b00100000;
       case "ArrowUp":
-        wasm.set_button(0b00010000);
-        break;               
-      case "ArrowLeft":      
-        wasm.set_button(0b01000000);
-        break;               
-      case "ArrowRight":     
-        wasm.set_button(0b10000000);
-        break;               
-      case "Backspace":          
-        wasm.set_button(0b00000100);
-        break;
+        return 0b00010000;
+      case "ArrowLeft":     
+        return 0b01000000;
+      case "ArrowRight":    
+        return 0b10000000;
+      case "Backspace":         
+        return 0b00000100;
       case ".":          
-        wasm.set_button(0b00000001);
-        break;
+        return 0b00000001;
       case ",":
-        wasm.set_button(0b00000010);
-        break;
+        return 0b00000010;
       case "Escape":
-        wasm.set_button(0b00001000);
-        break;
+        return 0b00001000;
       default:
-        return;
+        return 0;
     }
-    event.preventDefault();
-  },
-  true,
-);
+}
+
+const toggleButton = (event) => {
+  const button = getButton(event.key);
+  if (button != 0 && running) 
+    wasm.toggle_button(button);
+}
+
+document.addEventListener('keyup', toggleButton);
+
+document.addEventListener('keydown', toggleButton);
 
 drawCells(0);
 drawPalettes(() => 0xFF);
